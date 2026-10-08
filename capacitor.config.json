@@ -18,6 +18,12 @@
     "LocalNotifications": {
       "smallIcon": "ic_stat_waytogether",
       "iconColor": "#1A73E8"
+    },
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "appReadyTimeout": 15000,
+      "resetWhenUpdate": true
     }
   }
 }

@@ -8,6 +8,8 @@ import { currentGoogleProfile, signOut } from './lib/auth'
 import { loadActiveTrip, loadProfile, saveActiveTrip, saveProfile } from './lib/profile'
 import HomeScreen from './screens/HomeScreen'
 import Setup from './screens/Setup'
+import UpdateBanner from './components/UpdateBanner'
+import { VERSION_LABEL } from './lib/updates'
 import TripScreen from './screens/TripScreen'
 import { TripProvider, useTrip } from './state/TripContext'
 
@@ -28,6 +30,7 @@ function ProfileSheet({ open, profile, onClose, onSave, onSignOut }) {
       <button onClick={onSignOut} className="mt-2 h-12 w-full rounded-2xl text-[15px] font-bold text-danger">
         {profile?.google ? 'Sign out' : 'Reset profile'}
       </button>
+      <p className="pb-1 text-center text-[12px] font-semibold text-ink-3">WayTogether {VERSION_LABEL}</p>
     </ModalSheet>
   )
 }
@@ -73,6 +76,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="app-frame">
+        <UpdateBanner inTrip={inTrip} />
         {!profile ? (
           <Setup onDone={(p) => setProfile(saveProfile(p))} />
         ) : (

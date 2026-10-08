@@ -1,0 +1,71 @@
+name: Publish app update
+
+# Every push to main builds the web app and publishes it as the "latest" GitHub release.
+# Installed apps check releases/latest/download/update.json and update themselves over the air.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-update
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build web bundle
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_APP_BUILD: ${{ github.run_number }}
+        run: npx vite build
+
+      - name: Package update
+        env:
+          BUILD: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          (cd dist && zip -qr ../bundle.zip .)
+          node -e '
+            const n = require("./native-version.json")
+            const b = Number(process.env.BUILD)
+            const notes = (process.env.NOTES || "").split("\n")[0].slice(0, 120)
+            const feed = {
+              build: b,
+              native: n.native,
+              apk: n.apk,
+              bundle: `https://github.com/${process.env.REPO}/releases/download/update-${b}/bundle.zip`,
+              notes,
+              date: new Date().toISOString(),
+            }
+            require("fs").writeFileSync("update.json", JSON.stringify(feed, null, 2))
+            console.log(feed)
+          '
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ github.run_number }}
+        run: |
+          gh release create "update-$BUILD" bundle.zip update.json \
+            --title "Update $BUILD" --notes "Over-the-air update for WayTogether (build $BUILD)." --latest
+          # keep the 5 newest OTA releases
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^update-' | sort -t- -k2 -n -r | tail -n +6 | while read tag; do
+            gh release delete "$tag" --yes --cleanup-tag
+          done

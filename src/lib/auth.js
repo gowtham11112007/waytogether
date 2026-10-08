@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { SocialLogin } from '@capgo/capacitor-social-login'
+import { App } from '@capacitor/app'
+import { Browser } from '@capacitor/browser'
 import { BACKEND, supabase } from './realtime'
 
 const WEB_CLIENT_ID = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID
@@ -21,20 +23,65 @@ export function profileFromUser(user) {
 }
 
 let initialized = false
+export const APP_CALLBACK = 'app.convoya.trip://auth-callback'
 
-/** Android: native Google account picker → ID token → Supabase session. Web: redirect to Google. */
+// Google's normal web sign-in in a secure in-app browser (Custom Tab), returning to the app by deep link.
+// Used when the phone's built-in Google account picker refuses (e.g. error [16]).
+function signInWithBrowser() {
+  return new Promise((resolve, reject) => {
+    let done = false
+    let sub
+    const finish = (fn) => {
+      if (done) return
+      done = true
+      sub?.then((h) => h.remove())
+      Browser.close().catch(() => {})
+      fn()
+    }
+    sub = App.addListener('appUrlOpen', async ({ url }) => {
+      if (!url?.startsWith(APP_CALLBACK)) return
+      const u = new URL(url.replace(APP_CALLBACK, 'https://x/cb'))
+      const params = new URLSearchParams(u.search || u.hash.slice(1))
+      const code = params.get('code')
+      const err = params.get('error_description') || params.get('error')
+      if (err || !code) return finish(() => reject(new Error(err || 'Sign-in was cancelled.')))
+      try {
+        const { data, error } = await supabase().auth.exchangeCodeForSession(code)
+        if (error) throw error
+        finish(() => resolve(profileFromUser(data.user)))
+      } catch (e) {
+        finish(() => reject(e))
+      }
+    })
+    supabase()
+      .auth.signInWithOAuth({ provider: 'google', options: { redirectTo: APP_CALLBACK, skipBrowserRedirect: true } })
+      .then(({ data, error }) => {
+        if (error) throw error
+        return Browser.open({ url: data.url, presentationStyle: 'popover' })
+      })
+      .catch((e) => finish(() => reject(e)))
+    Browser.addListener('browserFinished', () => setTimeout(() => finish(() => reject(new Error('Sign-in was cancelled.'))), 1500))
+  })
+}
+
+/** Android: native Google account picker → ID token → Supabase session; falls back to web sign-in. Web: redirect. */
 export async function signInWithGoogle() {
   if (native) {
-    if (!initialized) {
-      await SocialLogin.initialize({ google: { webClientId: WEB_CLIENT_ID } })
-      initialized = true
+    try {
+      if (!initialized) {
+        await SocialLogin.initialize({ google: { webClientId: WEB_CLIENT_ID } })
+        initialized = true
+      }
+      const res = await SocialLogin.login({ provider: 'google', options: {} }) // basic sign-in already includes name, email, photo
+      const idToken = res?.result?.idToken
+      if (!idToken) throw new Error('Google didn’t return a sign-in token.')
+      const { data, error } = await supabase().auth.signInWithIdToken({ provider: 'google', token: idToken })
+      if (error) throw error
+      return profileFromUser(data.user)
+    } catch (e) {
+      if (/cancel/i.test(String(e?.message || e)) && !/reauth|\[16\]/i.test(String(e?.message))) throw e
+      return signInWithBrowser()
     }
-    const res = await SocialLogin.login({ provider: 'google', options: {} }) // basic sign-in already includes name, email, photo
-    const idToken = res?.result?.idToken
-    if (!idToken) throw new Error('Google didn’t return a sign-in token.')
-    const { data, error } = await supabase().auth.signInWithIdToken({ provider: 'google', token: idToken })
-    if (error) throw error
-    return profileFromUser(data.user)
   }
   const { error } = await supabase().auth.signInWithOAuth({
     provider: 'google',

@@ -1,0 +1,5 @@
+{
+  "native": 2,
+  "apk": "https://github.com/gowtham11112007/waytogether/releases/download/app-v2/WayTogether.apk",
+  "note": "Bump 'native' (and publish a new APK at that URL) whenever native code or Capacitor plugins change. Web-only changes update over the air."
+}
