@@ -8,3 +8,6 @@ android/.gradle
 .claude/
 .DS_Store
 android/local.properties
+.vercel
+.env*
+!.env.example
