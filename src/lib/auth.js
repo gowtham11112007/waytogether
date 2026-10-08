@@ -27,7 +27,7 @@ export const APP_CALLBACK = 'app.convoya.trip://auth-callback'
 
 // Google's normal web sign-in in a secure in-app browser (Custom Tab), returning to the app by deep link.
 // Used when the phone's built-in Google account picker refuses (e.g. error [16]).
-function signInWithBrowser() {
+export function signInWithBrowser() {
   return new Promise((resolve, reject) => {
     let done = false
     let sub
@@ -79,8 +79,14 @@ export async function signInWithGoogle() {
       if (error) throw error
       return profileFromUser(data.user)
     } catch (e) {
-      if (/cancel/i.test(String(e?.message || e)) && !/reauth|\[16\]/i.test(String(e?.message))) throw e
-      return signInWithBrowser()
+      const msg = String(e?.message || e)
+      if (/reauth|\[16\]/i.test(msg)) {
+        const err = new Error('Google refused this account for WayTogether (error 16). The app owner must add it as a test user or publish the app in Google Cloud → Audience.')
+        err.canUseBrowser = true
+        throw err
+      }
+      if (!/cancel/i.test(msg)) e.canUseBrowser = true
+      throw e
     }
   }
   const { error } = await supabase().auth.signInWithOAuth({

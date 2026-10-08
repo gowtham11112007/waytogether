@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2, LocateFixed, ShieldCheck, Users } from 'lucide-react'
 import { Logo, PrimaryButton } from '../components/ui'
-import { googleAvailable, signInWithGoogle } from '../lib/auth'
+import { googleAvailable, signInWithBrowser, signInWithGoogle } from '../lib/auth'
 import { newId } from '../lib/profile'
 
 function GoogleMark() {
@@ -23,15 +23,19 @@ export default function Setup({ onDone }) {
   const [manual, setManual] = useState(!googleAvailable)
   const valid = name.trim().length >= 2
 
-  const google = async () => {
+  const [browserOption, setBrowserOption] = useState(false)
+
+  // One attempt per tap: the phone's Google picker first; if that fails, offer browser sign-in instead of chaining prompts.
+  const google = async (viaBrowser = false) => {
     setBusy(true)
     setError(null)
     try {
-      const profile = await signInWithGoogle()
+      const profile = await (viaBrowser ? signInWithBrowser() : signInWithGoogle())
       if (profile) onDone(profile)
     } catch (e) {
       const msg = String(e?.message || e)
       setError(/cancel/i.test(msg) ? null : `Google sign-in didn’t work: ${msg}`)
+      if (e?.canUseBrowser) setBrowserOption(true)
     } finally {
       setBusy(false)
     }
@@ -64,12 +68,17 @@ export default function Setup({ onDone }) {
         {!manual ? (
           <>
             <button
-              onClick={google}
+              onClick={() => google(false)}
               disabled={busy}
               className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-line bg-white text-[16px] font-bold text-ink shadow-sm active:scale-[0.98] disabled:opacity-60"
             >
               {busy ? <Loader2 size={20} className="animate-spin" /> : <GoogleMark />} Continue with Google
             </button>
+            {browserOption && (
+              <button onClick={() => google(true)} disabled={busy} className="mt-2 h-12 w-full text-[14.5px] font-bold text-brand disabled:opacity-60">
+                Sign in with Google in the browser instead
+              </button>
+            )}
             <button onClick={() => setManual(true)} className="mt-3 h-12 w-full text-[14.5px] font-bold text-ink-3">
               Continue without an account
             </button>
