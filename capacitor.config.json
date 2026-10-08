@@ -1,0 +1,23 @@
+{
+  "appId": "app.convoya.trip",
+  "appName": "WayTogether",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#ffffff",
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "SocialLogin": {
+      "providers": {
+        "google": true,
+        "facebook": false,
+        "apple": false,
+        "twitter": false
+      }
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_waytogether",
+      "iconColor": "#1A73E8"
+    }
+  }
+}
