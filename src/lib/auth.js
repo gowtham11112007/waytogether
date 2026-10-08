@@ -72,7 +72,9 @@ export async function signInWithGoogle() {
         await SocialLogin.initialize({ google: { webClientId: WEB_CLIENT_ID } })
         initialized = true
       }
-      const res = await SocialLogin.login({ provider: 'google', options: {} }) // basic sign-in already includes name, email, photo
+      // Google's standard "Sign in with Google" screen, exactly once: the plugin's hidden automatic retry is switched off.
+      // Basic sign-in already includes name, email and photo.
+      const res = await SocialLogin.login({ provider: 'google', options: { style: 'standard' }, _googleReauthRetry: true })
       const idToken = res?.result?.idToken
       if (!idToken) throw new Error('Google didn’t return a sign-in token.')
       const { data, error } = await supabase().auth.signInWithIdToken({ provider: 'google', token: idToken })
