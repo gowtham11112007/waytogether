@@ -6,7 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 // No tables are needed. Without keys (local testing), browser tabs talk over BroadcastChannel.
 const URL = import.meta.env.VITE_SUPABASE_URL
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-export const BACKEND = URL && KEY ? 'supabase' : 'local'
+const testLocal = typeof location !== 'undefined' && new URLSearchParams(location.search).get('local') === '1'
+export const BACKEND = !testLocal && URL && KEY ? 'supabase' : 'local'
 
 let client
 // One client for auth (Google sign-in session is kept on the phone) and realtime.
