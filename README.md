@@ -63,3 +63,9 @@ The APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.
 ## Google sign-in
 
 Set `VITE_GOOGLE_WEB_CLIENT_ID` in `.env.local` to the **Web application** OAuth client ID (Google Cloud → Google Auth Platform → Clients), then rebuild. Until it's set, the Android app shows name-only sign-in.
+
+## Updates
+
+- **Web/UI changes (most changes):** push to `main`. The *Publish app update* workflow builds the app and publishes `bundle.zip` + `update.json` as the latest GitHub release. Installed apps check on launch and on resume (every 5 min), download in the background, and show **Update ready → Restart** on the home screen (never during a trip).
+- **Native changes** (new Capacitor plugin, Android manifest/Java): bump `native` in `native-version.json`, build the APK and upload it to the release named in `apk`. Apps will show **New app version available → Download**.
+- Repo secrets needed by the workflow: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_WEB_CLIENT_ID`.
