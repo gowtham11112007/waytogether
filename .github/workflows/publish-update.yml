@@ -42,6 +42,7 @@ jobs:
           NOTES: ${{ github.event.head_commit.message }}
         run: |
           (cd dist && zip -qr ../bundle.zip .)
+          export CHECKSUM=$(sha256sum bundle.zip | cut -d' ' -f1)
           node -e '
             const n = require("./native-version.json")
             const b = Number(process.env.BUILD)
@@ -51,6 +52,7 @@ jobs:
               native: n.native,
               apk: n.apk,
               bundle: `https://github.com/${process.env.REPO}/releases/download/update-${b}/bundle.zip`,
+              checksum: process.env.CHECKSUM,
               notes,
               date: new Date().toISOString(),
             }

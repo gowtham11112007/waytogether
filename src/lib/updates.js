@@ -39,14 +39,14 @@ export function markAppReady() {
 export async function checkForUpdate() {
   if (!native) return { state: 'none' }
   try {
-    const res = await CapacitorHttp.get({ url: `${FEED}?t=${Date.now()}`, responseType: 'json' })
+    const res = await CapacitorHttp.get({ url: `${FEED}?t=${Date.now()}`, responseType: 'json', connectTimeout: 15000, readTimeout: 15000 })
     const feed = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
     if (!feed?.build) return { state: 'none' }
     if (feed.native > NATIVE_VERSION) return { state: 'apk', apk: feed.apk, notes: feed.notes, build: feed.build }
     if (feed.build <= BUILD) return { state: 'none' }
     const saved = recall()
     if (saved?.build === feed.build && saved.bundleId) return { state: 'ready', bundleId: saved.bundleId, build: feed.build, notes: feed.notes }
-    const bundle = await CapacitorUpdater.download({ url: feed.bundle, version: String(feed.build) })
+    const bundle = await CapacitorUpdater.download({ url: feed.bundle, version: String(feed.build), checksum: feed.checksum })
     remember({ build: feed.build, bundleId: bundle.id })
     return { state: 'ready', bundleId: bundle.id, build: feed.build, notes: feed.notes }
   } catch {

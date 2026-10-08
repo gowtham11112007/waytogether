@@ -4,7 +4,7 @@ import { Download, RefreshCw, X } from 'lucide-react'
 import { openExternal } from '../lib/external'
 import { applyUpdate, checkForUpdate, markAppReady } from '../lib/updates'
 
-const CHECK_EVERY = 30 * 60 * 1000
+const CHECK_EVERY = 5 * 60 * 1000
 
 // Checks GitHub for a newer version on launch and when the app comes back to the foreground.
 export default function UpdateBanner({ inTrip }) {
