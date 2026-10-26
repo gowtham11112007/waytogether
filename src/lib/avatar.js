@@ -10,10 +10,11 @@ function hash(s) {
   return Math.abs(h)
 }
 
-// A friendly face per person, generated on the phone from their id (no uploads, no network).
+// A friendly face per person, generated on the phone (no uploads, no network): from the face they picked
+// in Settings (`avatar` seed), otherwise from their id.
 export function avatarFor(person) {
   if (person.photo) return person.photo // Google profile photo
-  const key = person.id || person.name || 'x'
+  const key = person.avatar || person.id || person.name || 'x'
   if (!cache.has(key)) {
     cache.set(
       key,

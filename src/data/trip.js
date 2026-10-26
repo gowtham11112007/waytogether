@@ -1,11 +1,28 @@
 import { Coffee, FastForward, Fuel, MapPin, Merge, Navigation, OctagonPause, Siren, UtensilsCrossed, Wrench, CircleCheck, Route, TriangleAlert, WifiOff, Hourglass, PhoneOff } from 'lucide-react'
 
+// `color` is the same in both themes; `soft` (backgrounds) and `text` switch with light/dark (see index.css).
 export const LEVEL = {
-  ok: { color: '#16A34A', soft: '#DCFCE7', text: '#15803D' },
-  warn: { color: '#F59E0B', soft: '#FEF3C7', text: '#B45309' },
-  danger: { color: '#E5383B', soft: '#FEE2E2', text: '#B91C1C' },
-  info: { color: '#0284C7', soft: '#E0F2FE', text: '#0369A1' },
-  muted: { color: '#9CA3AF', soft: '#F3F4F6', text: '#6B7280' },
+  ok: { color: '#16A34A', soft: 'var(--lv-ok-soft)', text: 'var(--lv-ok-text)' },
+  warn: { color: '#F59E0B', soft: 'var(--lv-warn-soft)', text: 'var(--lv-warn-text)' },
+  danger: { color: '#E5383B', soft: 'var(--lv-danger-soft)', text: 'var(--lv-danger-text)' },
+  info: { color: '#0284C7', soft: 'var(--lv-info-soft)', text: 'var(--lv-info-text)' },
+  muted: { color: '#9CA3AF', soft: 'var(--lv-muted-soft)', text: 'var(--lv-muted-text)' },
+}
+
+// Convoy rules: what counts as together, behind, off route, and when to check on a stopped rider.
+// The leader can change them for the whole trip (Trip options → Convoy rules); cars spread out more than bikes.
+export const DEFAULT_RULES = {
+  Bike: { spread: 800, behind: 1500, offRoute: 300, stillMin: 5, checkinMin: 2 },
+  Car: { spread: 1500, behind: 3000, offRoute: 300, stillMin: 5, checkinMin: 2 },
+  Mixed: { spread: 1200, behind: 2500, offRoute: 300, stillMin: 5, checkinMin: 2 },
+}
+export const rulesFor = (type) => DEFAULT_RULES[type] || DEFAULT_RULES.Bike
+export const RULE_CHOICES = {
+  spread: [300, 500, 800, 1500, 3000],
+  behind: [1000, 1500, 2500, 3000, 5000],
+  offRoute: [150, 300, 600, 1000],
+  stillMin: [0, 3, 5, 10, 15],
+  checkinMin: [1, 2, 5],
 }
 
 export const STATUS = {

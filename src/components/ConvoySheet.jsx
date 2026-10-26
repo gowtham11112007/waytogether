@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, MessageCircle, Settings2, Share2, UserPlus, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, MessageCircle, Settings2, Share2, SlidersHorizontal, UserPlus, Zap } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { LEVEL, STATUS } from '../data/trip'
-import { formatDistance, formatKm, timeAgo } from '../lib/geo'
+import { formatClock, formatDistance, formatKm, formatSpeed, timeAgo } from '../lib/geo'
 import { inviteUrl } from '../lib/invite'
 import ChatPanel from './ChatPanel'
 import { WeatherCard } from './Weather'
@@ -38,7 +38,7 @@ function FriendChip({ friend, onClick, delay = 0 }) {
     >
       <Avatar member={friend} size={54} />
       <span className="mt-1 max-w-[72px] truncate text-[13px] font-bold leading-4">{friend.name}</span>
-      <span className="text-[12px] font-semibold leading-3" style={{ color: warn ? lv.text : '#6B7280' }}>
+      <span className="text-[12px] font-semibold leading-3" style={{ color: warn ? lv.text : 'var(--color-ink-3)' }}>
         {friend.fromMe != null ? formatDistance(friend.fromMe) : 'No GPS yet'}
       </span>
     </button>
@@ -85,7 +85,7 @@ function AlertRow({ alert, member, now, onAction }) {
   const lv = LEVEL[alert.level] || LEVEL.info
   const canAct = alert.action && (member?.latlng || alert.regroup)
   return (
-    <div className="rounded-2xl border p-3.5" style={{ borderColor: alert.level === 'danger' ? '#FCA5A5' : '#E5E7EB', background: alert.level === 'danger' ? '#FEF2F2' : '#fff' }}>
+    <div className="rounded-2xl border p-3.5" style={{ borderColor: alert.level === 'danger' ? 'rgb(229 56 59 / 0.4)' : 'var(--color-line)', background: alert.level === 'danger' ? 'var(--lv-danger-soft)' : 'var(--color-surface)' }}>
       <div className="flex gap-3">
         {member ? (
           <Avatar member={member} size={40} />
@@ -121,7 +121,7 @@ function AlertRow({ alert, member, now, onAction }) {
 export function InviteCard({ code, onShare, compact }) {
   return (
     <div className={`flex items-center gap-4 rounded-3xl border border-line ${compact ? 'p-3' : 'p-4'}`}>
-      <div className="rounded-xl bg-white p-1 ring-1 ring-line">
+      <div className="rounded-xl bg-[#fff] p-1 ring-1 ring-line">
         <QRCodeSVG value={inviteUrl(code)} size={compact ? 72 : 88} level="M" />
       </div>
       <div className="min-w-0 flex-1">
@@ -150,7 +150,7 @@ const TABS = [
 export default function ConvoySheet({
   me, friends, members, health, alerts, unread, markSeen, messages, unreadChat, markChatSeen, onSend,
   progress, trip, code, now, stats, tab, setTab, expanded, setExpanded,
-  onSelectFriend, onOpenStatus, onAlertAction, onInvite, onOptions, onDragChange, detail,
+  onSelectFriend, onOpenStatus, onAlertAction, onInvite, onOptions, onDragChange, onRules, rules, detail,
 }) {
   const sheet = useRef(null)
   const drag = useRef(null) // a finger dragging the sheet: { id, y, h, lastY, lastT, v, moved }
@@ -174,7 +174,11 @@ export default function ConvoySheet({
     if (!d.moved) {
       if (Math.abs(dy) < 6) return
       d.moved = true
-      e.currentTarget.setPointerCapture?.(e.pointerId)
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId) // keep following the finger outside the handle
+      } catch {
+        /* the pointer is already gone */
+      }
       onDragChange?.(true)
     }
     const dt = e.timeStamp - d.lastT
@@ -208,7 +212,7 @@ export default function ConvoySheet({
     if (t === 'alerts') markSeen()
     if (t === 'chat') markChatSeen()
   }
-  const etaText = progress ? new Date(progress.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null
+  const etaText = progress ? formatClock(progress.eta) : null
   // Tapping the convoy summary jumps to whoever needs help, otherwise to the trip overview.
   const onHealth = () => (health.memberId ? onSelectFriend(health.memberId) : openTab('trip'))
 
@@ -326,7 +330,7 @@ export default function ConvoySheet({
                                 <StatusText state={f.state} />
                                 {f.state === 'still' && ` ${Math.round(f.stillFor / 60000)} min`}
                                 {f.checkin && ' · waiting for reply'}
-                                {f.speed > 3 && f.state !== 'offline' && ` · ${f.speed} km/h`} · {timeAgo(now - f.updatedAt)}
+                                {f.speed > 3 && f.state !== 'offline' && ` · ${formatSpeed(f.speed)}`} · {timeAgo(now - f.updatedAt)}
                               </div>
                             </div>
                             <span className="text-[15px] font-extrabold tabular-nums">{f.fromMe != null ? formatDistance(f.fromMe) : '—'}</span>
@@ -381,7 +385,7 @@ export default function ConvoySheet({
                           <div className="text-[11.5px] font-semibold text-ink-3">on the road</div>
                         </div>
                         <div>
-                          <div className="text-[16px] font-extrabold">{Math.round(stats?.maxSpeed || 0)} km/h</div>
+                          <div className="text-[16px] font-extrabold">{formatSpeed(stats?.maxSpeed || 0)}</div>
                           <div className="text-[11.5px] font-semibold text-ink-3">top speed</div>
                         </div>
                       </div>
@@ -396,6 +400,21 @@ export default function ConvoySheet({
                       <p className="mt-1 text-[13.5px] font-medium text-ink-2">{health.line}</p>
                       <ConvoyStrip members={members} />
                     </div>
+
+                    {rules && (
+                      <button onClick={onRules} className="flex w-full items-center gap-3 rounded-3xl border border-line p-4 text-left active:scale-[0.99]">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-brand">
+                          <SlidersHorizontal size={19} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[15px] font-bold">Convoy rules</span>
+                          <span className="block truncate text-[12.5px] font-medium text-ink-3">
+                            Together within {formatKm(rules.spread)} · alert at {formatKm(rules.behind)} · off route {formatKm(rules.offRoute)}
+                          </span>
+                        </span>
+                        <ChevronRight size={18} className="shrink-0 text-ink-3" />
+                      </button>
+                    )}
 
                     <WeatherCard here={me?.latlng} dest={trip.dest?.latlng} destName={trip.dest?.name} />
 

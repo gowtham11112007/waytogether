@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Clock, MapPin, Phone, Route, Share2, User, X } from 'lucide-react'
+import { Clock, MapPin, MessageSquare, Phone, Route, Share2, User, X } from 'lucide-react'
+import { formatClock, formatKm } from '../lib/geo'
+import { useSettings } from '../lib/settings'
 import { Avatar } from './ui'
 
-const HOLD_MS = 3000
 const R = 120
 const C = 2 * Math.PI * R
 
@@ -15,6 +16,13 @@ function buzz(pattern) {
 }
 
 export default function SOSScreen({ me, tripName, friends, active, onSend, onCancel, onClose, onShare }) {
+  // Settings → Safety: how long to hold, which number to call, and a personal emergency contact.
+  const { sosHold, emergencyNumber, contact } = useSettings()
+  const holdSec = sosHold || 3
+  const number = (emergencyNumber || '112').trim()
+  const where = me.latlng ? ` My location: https://maps.google.com/?q=${me.latlng[0].toFixed(6)},${me.latlng[1].toFixed(6)}` : ''
+  const dial = contact?.phone?.replace(/[^0-9+*#]/g, '') // no spaces in tel:/sms: links
+  const smsLink = dial ? `sms:${dial}?body=${encodeURIComponent(`SOS from ${me.name}: I need help.${where}`)}` : null
   const [progress, setProgress] = useState(0)
   const [holding, setHolding] = useState(false)
   const raf = useRef(0)
@@ -40,7 +48,7 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
     buzz(30)
     startedAt.current = performance.now()
     const tick = (t) => {
-      const p = Math.min(1, (t - startedAt.current) / HOLD_MS)
+      const p = Math.min(1, (t - startedAt.current) / (holdSec * 1000))
       setProgress(p)
       if (!holdingRef.current) return
       if (p >= 1) {
@@ -62,7 +70,7 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
     setProgress(0)
   }
 
-  const left = Math.ceil(3 - progress * 3)
+  const left = Math.ceil(holdSec - progress * holdSec)
   const coords = me.latlng ? `${me.latlng[0].toFixed(5)}, ${me.latlng[1].toFixed(5)}` : 'Waiting for GPS…'
   const helper = friends.filter((f) => f.fromMe != null && f.state !== 'offline').sort((a, b) => a.fromMe - b.fromMe)[0]
 
@@ -81,7 +89,7 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
         <div className="mt-8 flex flex-col items-center px-6 text-center">
           <div className="relative flex h-28 w-28 items-center justify-center">
             <span className="absolute inset-0 animate-ping rounded-full bg-white/25" />
-            <span className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white text-[26px] font-extrabold text-[#B3121F]">SOS</span>
+            <span className="relative flex h-24 w-24 items-center justify-center rounded-full bg-[#fff] text-[26px] font-extrabold text-[#B3121F]">SOS</span>
           </div>
           <h1 className="mt-6 text-[26px] font-extrabold leading-8 tracking-tight">Your convoy has been notified.</h1>
           <p className="mt-2 text-[15px] font-medium text-white/80">Your live location is being shared with everyone.</p>
@@ -91,7 +99,7 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
           {[
             [MapPin, 'Location', coords],
             [User, 'Name', me.name],
-            [Clock, 'Time', sentAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })],
+            [Clock, 'Time', formatClock(sentAt)],
             [Route, 'Trip', tripName],
           ].map(([Icon, k, v]) => (
             <div key={k} className="flex items-center gap-3 px-4 py-3">
@@ -105,14 +113,24 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
         {helper && (
           <div className="mx-5 mt-4 flex items-center gap-3 rounded-2xl bg-white/10 p-3">
             <Avatar member={helper} size={36} ring={false} badge={false} />
-            <span className="flex-1 text-[14px] font-bold">{helper.name} is closest ({Math.round(helper.fromMe)} m) and has been alerted</span>
+            <span className="flex-1 text-[14px] font-bold">{helper.name} is closest ({formatKm(helper.fromMe)}) and has been alerted</span>
           </div>
         )}
 
         <div className="mt-auto flex flex-col gap-3 px-5 pb-safe">
-          <a href="tel:112" className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-white text-[16px] font-extrabold text-[#B3121F]">
-            <Phone size={20} /> Call Emergency Services · 112
+          <a href={`tel:${number}`} className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-[#fff] text-[16px] font-extrabold text-[#B3121F]">
+            <Phone size={20} /> Call Emergency Services · {number}
           </a>
+          {contact?.phone && (
+            <div className="grid grid-cols-2 gap-3">
+              <a href={`tel:${dial}`} className="flex h-13 min-w-0 items-center justify-center gap-2 rounded-2xl bg-white/15 px-2 text-[15px] font-bold">
+                <Phone size={18} className="shrink-0" /> <span className="truncate">Call {contact.name || 'contact'}</span>
+              </a>
+              <a href={smsLink} className="flex h-13 min-w-0 items-center justify-center gap-2 rounded-2xl bg-white/15 px-2 text-[15px] font-bold">
+                <MessageSquare size={18} className="shrink-0" /> <span className="truncate">Text {contact.name || 'contact'}</span>
+              </a>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <button onClick={onShare} disabled={!me.latlng} className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-white/15 text-[15px] font-bold disabled:opacity-50">
               <Share2 size={18} /> Share Location
@@ -136,18 +154,18 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
       <div className="mt-4 px-6 text-center">
         <h1 className="text-[26px] font-extrabold tracking-tight">Emergency Assistance</h1>
         <p className="mt-2 text-[15px] font-medium text-ink-3">
-          {holding ? 'Keep holding. Release to cancel — nothing is sent yet.' : 'Press and hold for 3 seconds to alert your convoy.'}
+          {holding ? 'Keep holding. Release to cancel — nothing is sent yet.' : `Press and hold for ${holdSec} ${holdSec === 1 ? 'second' : 'seconds'} to alert your convoy.`}
         </p>
       </div>
 
       <div className="flex flex-1 items-center justify-center">
         <div className="relative h-[272px] w-[272px] select-none">
           <svg width="272" height="272" viewBox="0 0 272 272" className="absolute inset-0 -rotate-90">
-            <circle cx="136" cy="136" r={R} fill="none" stroke="#FEE2E2" strokeWidth="10" />
+            <circle cx="136" cy="136" r={R} fill="none" strokeWidth="10" style={{ stroke: 'var(--lv-danger-soft)' }} />
             <circle cx="136" cy="136" r={R} fill="none" stroke="#E5383B" strokeWidth="10" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - progress)} />
           </svg>
           <button
-            aria-label="Press and hold for 3 seconds to send SOS"
+            aria-label={`Press and hold for ${holdSec} seconds to send SOS`}
             onPointerDown={(e) => {
               e.preventDefault()
               begin()
@@ -167,15 +185,15 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
             className="absolute left-[26px] top-[26px] flex h-[220px] w-[220px] flex-col items-center justify-center rounded-full bg-danger text-white shadow-[0_20px_50px_rgba(229,56,59,0.45)] transition-transform"
           >
             <span className="text-[52px] font-extrabold leading-none tracking-wider">SOS</span>
-            <span className="mt-2 text-[14px] font-bold text-white/85">{holding ? `Hold… ${left}` : 'Hold 3 sec'}</span>
+            <span className="mt-2 text-[14px] font-bold text-white/85">{holding ? `Hold… ${left}` : `Hold ${holdSec} sec`}</span>
           </button>
         </div>
       </div>
 
       <div className="px-6 pb-4 text-center text-[13px] font-semibold text-ink-3">{friends.length ? `Shares your location, name, time and trip with ${friends.length} ${friends.length === 1 ? 'friend' : 'friends'}.` : 'Shares your location, name, time and trip with everyone who joins.'}</div>
       <div className="px-5 pb-safe">
-        <a href="tel:112" className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-line text-[16px] font-bold text-ink">
-          <Phone size={20} /> Call Emergency Services · 112
+        <a href={`tel:${number}`} className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-line text-[16px] font-bold text-ink">
+          <Phone size={20} /> Call Emergency Services · {number}
         </a>
       </div>
     </div>

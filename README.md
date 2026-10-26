@@ -19,6 +19,14 @@ Keep the Journey Together. A live map for groups travelling together. Everyone i
 - **Spoken alerts** (Trip options → *Speak alerts*, where the phone has text-to-speech voices): reads out SOS, stops and chat messages.
 - **Trip summary**: stats count up, your ride is drawn from breadcrumbs recorded every ~30 m (GPS jumps left out), and a finished trip gets confetti. The home screen shows your totals.
 - **Motion**: animated welcome scene, a convoy panel you can drag with a finger, sliding tabs, sheets and toasts that animate in and out, markers that pop in. Phones set to *reduce motion* get a still app.
+- **Settings** (tap your avatar on Home, or Trip options → *All settings*), saved on the phone:
+  - *Profile*: name, a new generated face (or your Google photo), sign out.
+  - *Appearance*: light / dark / system theme, map style (Auto follows the theme), places (fuel, food, shops) and 3D buildings on the map, speed bubble.
+  - *Units*: kilometres or miles, 12- or 24-hour time (used everywhere: distances, speeds, ETAs, chat times).
+  - *Alerts*: sounds and volume, vibration, spoken alerts, chat sounds, and which kinds of alerts pop up (stops, off-route, behind/ahead, low battery, joins and leaves). SOS and other dangers always alert.
+  - *Safety*: emergency number, an emergency contact (call or text them your location from the SOS screen), how long to hold SOS, keep screen on.
+  - *Privacy*: share your battery level or not. *Trips and chat*: default trip type, your own quick replies. *Data*: clear history, reset settings.
+- **Convoy rules** (Trip options → *Convoy rules*, or the Trip tab): the leader sets what counts as together, when someone is behind or off route, when to ask "Are you OK?" and how long before an automatic SOS. Saved in the trip, so every phone uses the same rules; bikes, cars and mixed trips start with sensible defaults.
 - **Background**: a foreground location service keeps sharing with the screen off; realtime heartbeats run in a Web Worker so the connection survives; trip alerts (SOS, stops, chat) are posted by the app's own `TripAlerts` plugin so they arrive instantly even when the app is in the background.
 - **Android-only plugins in this repo**: `android/app/src/main/java/app/convoya/trip/MediaControlPlugin.java` (music keys) and `TripAlertsPlugin.java` (notifications), registered in `MainActivity.java`.
 
@@ -76,6 +84,9 @@ node scripts/generate_web_assets.mjs
 - `src/screens/WatchScreen.jsx`: the view-only family live view.
 - `src/lib/weather.js`, `src/components/Weather.jsx`: weather lookups and the weather chip/card.
 - `src/lib/speech.js`: spoken alerts.
+- `src/screens/SettingsScreen.jsx`, `src/lib/settings.js`: everything customisable, the theme and map-style hooks.
+- `src/components/RulesSheet.jsx`, `DEFAULT_RULES` in `src/data/trip.js`: convoy rules.
+- `src/index.css`: the dark theme lives in the `[data-theme='dark']` block.
 - `src/state/TripContext.jsx`: the trip engine. Covers riders, distances, the route match, Convoy Health, alerts (stops, off-route, falling behind, offline, low battery, SOS) and actions.
 - `src/screens/HomeScreen.jsx`: Google-Maps-style home, "Where to?" search, route preview, create trip, join by code or QR.
 - `src/screens/TripScreen.jsx`: the live trip map, friend cards, status, invite, SOS, regroup pin, change destination, end trip.

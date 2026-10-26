@@ -14,7 +14,7 @@ export function Avatar({ member, size = 48, ring = true, badge = true }) {
         alt=""
         referrerPolicy="no-referrer"
         className="h-full w-full rounded-full bg-white object-cover"
-        style={ring ? { boxShadow: `0 0 0 2.5px #fff, 0 0 0 5px ${lv.color}` } : undefined}
+        style={ring ? { boxShadow: `0 0 0 2.5px var(--color-surface), 0 0 0 5px ${lv.color}` } : undefined}
       />
       {showBadge && (
         <span
@@ -274,6 +274,37 @@ export function Confetti({ count = 80 }) {
   )
 }
 
+// A row of choices with a highlight that slides to the chosen one (Settings, convoy rules).
+export function Segmented({ value, options, onChange, label, disabled }) {
+  const i = Math.max(0, options.findIndex(([v]) => v === value))
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={`relative grid rounded-2xl bg-canvas p-1 ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-1 left-1 rounded-xl bg-white shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        style={{ width: `calc((100% - 8px) / ${options.length})`, transform: `translateX(${i * 100}%)` }}
+      />
+      {options.map(([v, text]) => (
+        <button
+          key={String(v)}
+          type="button"
+          role="radio"
+          aria-checked={v === value}
+          onClick={() => onChange(v)}
+          className={`relative z-10 h-10 truncate rounded-xl px-1 text-[13px] font-bold transition-colors duration-200 ${v === value ? 'text-ink' : 'text-ink-3'}`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Toggle({ on, onChange, label, hint, icon }) {
   return (
     <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)} className="flex w-full items-center gap-3.5 py-3 text-left">
@@ -283,7 +314,7 @@ export function Toggle({ on, onChange, label, hint, icon }) {
         {hint && <span className="block text-[12.5px] font-medium text-ink-3">{hint}</span>}
       </span>
       <span className={`relative h-8 w-[52px] shrink-0 rounded-full transition ${on ? 'bg-brand' : 'bg-gray-300'}`}>
-        <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? 'left-[24px]' : 'left-1'}`} />
+        <span className={`absolute top-1 h-6 w-6 rounded-full bg-[#fff] shadow transition-all ${on ? 'left-[24px]' : 'left-1'}`} />
       </span>
     </button>
   )

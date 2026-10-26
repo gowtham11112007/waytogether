@@ -43,6 +43,7 @@ export const isValidCode = (c) => /^[A-Z]{3}-\d{4}$/.test(c)
 // Finished trips (on this phone only).
 const HISTORY_KEY = 'convoya.history'
 export const loadHistory = () => read(HISTORY_KEY) || []
+export const clearHistory = () => write(HISTORY_KEY, null)
 export function addHistory(entry) {
   const list = [entry, ...loadHistory().filter((h) => h.id !== entry.id)].slice(0, 30)
   write(HISTORY_KEY, list)

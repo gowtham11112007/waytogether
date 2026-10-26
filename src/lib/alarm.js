@@ -1,6 +1,8 @@
 import { getSettings } from './settings'
 
 // Sounds are synthesized (no audio files): an SOS siren and a short chime for updates.
+// Settings → Alerts → Volume scales them.
+const loudness = () => ({ low: 0.45, medium: 0.75, high: 1 })[getSettings().volume] ?? 0.75
 let ctx = null
 function audio() {
   try {
@@ -30,9 +32,10 @@ export function playSiren(seconds = 6) {
   osc.connect(gain).connect(a.destination)
   const t = a.currentTime
   for (let i = 0; i < seconds * 2; i++) osc.frequency.setValueAtTime(i % 2 ? 980 : 660, t + i * 0.5)
+  const peak = 0.25 * loudness()
   gain.gain.setValueAtTime(0.0001, t)
-  gain.gain.exponentialRampToValueAtTime(0.25, t + 0.05)
-  gain.gain.setValueAtTime(0.25, t + seconds - 0.15)
+  gain.gain.exponentialRampToValueAtTime(peak, t + 0.05)
+  gain.gain.setValueAtTime(peak, t + seconds - 0.15)
   gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds)
   osc.start(t)
   osc.stop(t + seconds)
@@ -51,7 +54,7 @@ export function chime(kind = 'info') {
     osc.connect(gain).connect(a.destination)
     const t = a.currentTime + i * 0.13
     gain.gain.setValueAtTime(0.0001, t)
-    gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.18 * loudness(), t + 0.02)
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22)
     osc.start(t)
     osc.stop(t + 0.25)

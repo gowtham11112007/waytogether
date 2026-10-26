@@ -11,16 +11,17 @@ import MusicSheet from '../components/MusicSheet'
 import SearchView from '../components/SearchView'
 import StatusSheet from '../components/StatusSheet'
 import SOSScreen from '../components/SOSScreen'
+import RulesSheet from '../components/RulesSheet'
 import TripMenu from '../components/TripMenu'
 import { Avatar, ConfirmDialog, ModalSheet, PrimaryButton, ToastSlot } from '../components/ui'
 import { STATUS } from '../data/trip'
 import { googleMapsDirections, openExternal } from '../lib/external'
-import { formatDistance, formatKm, timeAgo } from '../lib/geo'
+import { formatClock, formatDistance, formatKm, speedUnit, speedValue, timeAgo } from '../lib/geo'
 import { inviteText, inviteUrl, watchText } from '../lib/invite'
 import { rainy, weatherAt } from '../lib/weather'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
-import { useSettings } from '../lib/settings'
+import { useMapStyle, useSettings } from '../lib/settings'
 import { useTrip } from '../state/TripContext'
 
 async function shareText(text, notify, copiedTitle) {
@@ -65,9 +66,10 @@ const FloatBtn = ({ active, onClick, label, children, tone = 'ink' }) => (
   </button>
 )
 
-export default function TripScreen({ loc }) {
+export default function TripScreen({ loc, onOpenSettings }) {
   const t = useTrip()
   const settings = useSettings()
+  const mapStyle = useMapStyle()
   const [selectedId, setSelectedId] = useState(null)
   const [focus, setFocus] = useState(null)
   const [mode, setMode] = useState('group')
@@ -81,6 +83,7 @@ export default function TripScreen({ loc }) {
   const [confirm, setConfirm] = useState(null) // { title, body, label, danger, run }
   const [searching, setSearching] = useState(false)
   const [dragging, setDragging] = useState(false) // the convoy panel is under a finger
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [pinMode, setPinMode] = useState(false)
   const [pinCenter, setPinCenter] = useState(null)
   const [pinName, setPinName] = useState('')
@@ -205,7 +208,9 @@ export default function TripScreen({ loc }) {
           onUserMove={() => setMode('free')}
           onCenterChange={pinMode ? setPinCenter : undefined}
           padding={{ top: mapTop, bottom: mapBottom }}
-          styleKey={settings.mapStyle}
+          styleKey={mapStyle}
+          places={settings.mapPlaces}
+          buildings={settings.map3d}
         />
       </div>
 
@@ -219,7 +224,7 @@ export default function TripScreen({ loc }) {
             <div className="truncate text-[15.5px] font-extrabold leading-5">To {t.trip.dest?.name}</div>
             <div className="truncate text-[12.5px] font-semibold text-ink-3">
               {t.progress
-                ? `${formatKm(t.progress.remaining)} · ETA ${new Date(t.progress.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${t.members.length} ${t.members.length === 1 ? 'rider' : 'riders'}`
+                ? `${formatKm(t.progress.remaining)} · ETA ${formatClock(t.progress.eta)} · ${t.members.length} ${t.members.length === 1 ? 'rider' : 'riders'}`
                 : `${t.trip.name} · ${t.members.length} ${t.members.length === 1 ? 'rider' : 'riders'}`}
             </div>
           </button>
@@ -246,7 +251,7 @@ export default function TripScreen({ loc }) {
                 </span>
               </button>
               {f.latlng && (
-                <button onClick={() => openExternal(googleMapsDirections(f.latlng))} className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13.5px] font-extrabold text-[#B3121F] active:scale-95">
+                <button onClick={() => openExternal(googleMapsDirections(f.latlng))} className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#fff] px-3.5 text-[13.5px] font-extrabold text-[#B3121F] active:scale-95">
                   <Navigation2 size={16} fill="currentColor" /> Go
                 </button>
               )}
@@ -262,10 +267,10 @@ export default function TripScreen({ loc }) {
             else if (shown.memberId) focusFriend(shown.memberId)
           }}
         />
-        {!toast && !pinMode && !expanded && me?.speed >= 3 && (
+        {settings.showSpeed && !toast && !pinMode && !expanded && me?.speed >= 3 && (
           <div className="pointer-events-none flex h-12 w-12 flex-col items-center justify-center self-start rounded-full bg-white shadow-[0_4px_12px_rgba(17,24,39,0.16)]">
-            <span className="text-[17px] font-extrabold leading-4 tabular-nums">{me.speed}</span>
-            <span className="text-[9px] font-bold text-ink-3">km/h</span>
+            <span className="text-[17px] font-extrabold leading-4 tabular-nums">{speedValue(me.speed)}</span>
+            <span className="text-[9px] font-bold text-ink-3">{speedUnit()}</span>
           </div>
         )}
       </div>
@@ -348,6 +353,8 @@ export default function TripScreen({ loc }) {
           onAlertAction={(a) => (a.regroup ? showRegroup() : a.checkin ? t.askCheckIn(a.memberId) : focusFriend(a.memberId))}
           onInvite={() => setInviteOpen(true)}
           onOptions={() => setMenuOpen(true)}
+          onRules={() => setRulesOpen(true)}
+          rules={t.rules}
           onDragChange={setDragging}
           detail={
             selected && !expanded ? (
@@ -448,6 +455,14 @@ export default function TripScreen({ loc }) {
           setMenuOpen(false)
           setInviteOpen(true)
         }}
+        onRules={() => {
+          setMenuOpen(false)
+          setRulesOpen(true)
+        }}
+        onSettings={() => {
+          setMenuOpen(false)
+          onOpenSettings?.()
+        }}
         onFamily={() => {
           setMenuOpen(false)
           shareFamily()
@@ -476,12 +491,14 @@ export default function TripScreen({ loc }) {
         }
       />
 
+      <RulesSheet open={rulesOpen} onClose={() => setRulesOpen(false)} rules={t.rules} canEdit={t.role === 'leader'} leaderName={t.trip.leaderName} onSave={t.updateRules} />
+
       <MusicSheet open={musicOpen} onClose={() => setMusicOpen(false)} playlist={t.trip.playlist} onSetPlaylist={(url) => t.updateTrip({ playlist: url })} />
 
       <ModalSheet open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite your convoy" subtitle="Send the invite link, or let friends scan or type this code.">
         <div className="flex flex-col items-center pb-2">
           <div className="font-mono text-[40px] font-bold tracking-wider">{t.code}</div>
-          <div className="mt-3 rounded-2xl bg-white p-2 ring-1 ring-line">
+          <div className="mt-3 rounded-2xl bg-[#fff] p-2 ring-1 ring-line">
             <QRCodeSVG value={inviteUrl(t.code)} size={180} level="M" />
           </div>
           <p className="mt-2 text-center text-[12.5px] font-medium text-ink-3">Scanning with any phone camera opens the trip.</p>
@@ -531,7 +548,7 @@ export default function TripScreen({ loc }) {
         />
       )}
 
-      {t.checkinRequest && !sosActive && <CheckInPrompt request={t.checkinRequest} onAnswer={t.answerCheckIn} />}
+      {t.checkinRequest && !sosActive && <CheckInPrompt request={t.checkinRequest} onAnswer={t.answerCheckIn} ms={t.checkinMs} />}
 
       {(sosOpen || sosActive) && me && (
         <SOSScreen

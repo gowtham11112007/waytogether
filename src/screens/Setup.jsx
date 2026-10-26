@@ -80,7 +80,7 @@ function ConvoyScene() {
 
 function Chip({ children, className = '', style }) {
   return (
-    <span className={`absolute flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-[12.5px] font-bold text-ink shadow-[0_8px_20px_rgba(17,24,39,0.18)] ${className}`} style={style}>
+    <span className={`absolute flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-[12.5px] font-bold text-[#111827] shadow-[0_8px_20px_rgba(17,24,39,0.18)] ${className}`} style={style}>
       {children}
     </span>
   )

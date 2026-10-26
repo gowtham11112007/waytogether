@@ -1,3 +1,5 @@
+import { getSettings } from './settings'
+
 const R = 6371000
 const rad = (d) => (d * Math.PI) / 180
 
@@ -55,10 +57,32 @@ export function offsetSideways(latlng, heading, metres) {
   return [latlng[0] + dLat, latlng[1] + dLng]
 }
 
+// Units follow Settings → Units (kilometres or miles, 12- or 24-hour clock).
+const MILE = 1609.344
+const FOOT = 0.3048
+const imperial = () => getSettings().units === 'imperial'
+
 export function formatDistance(m) {
   if (m < 50) return 'With you'
+  if (imperial()) {
+    const ft = m / FOOT
+    return ft < 1000 ? `${Math.round(ft / 10) * 10} ft` : `${(m / MILE).toFixed(1)} mi`
+  }
   if (m < 1000) return `${Math.round(m / 10) * 10} m`
   return `${(m / 1000).toFixed(1)} km`
+}
+
+export const speedUnit = () => (imperial() ? 'mph' : 'km/h')
+export const speedValue = (kmh) => Math.round(imperial() ? kmh * 0.621371 : kmh)
+export const formatSpeed = (kmh) => `${speedValue(kmh)} ${speedUnit()}`
+
+const phoneUses24h = () => /h2[34]/.test(new Intl.DateTimeFormat([], { hour: 'numeric' }).resolvedOptions().hourCycle || '')
+
+export function formatClock(ts) {
+  const c = getSettings().clock
+  const h24 = c === '24' || (c === 'auto' && phoneUses24h())
+  // 24-hour times read "00:38", not "0:38"; 12-hour times keep "9:05 pm".
+  return new Date(ts).toLocaleTimeString([], { hour: h24 ? '2-digit' : 'numeric', minute: '2-digit', ...(c === 'auto' ? {} : { hour12: c === '12' }) })
 }
 
 export function timeAgo(ms) {
@@ -100,5 +124,9 @@ export function formatDuration(sec) {
 }
 
 export function formatKm(m) {
+  if (imperial()) {
+    const mi = m / MILE
+    return mi < 0.1 ? `${Math.round(m / FOOT)} ft` : `${mi.toFixed(mi < 10 ? 1 : 0)} mi`
+  }
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`
 }

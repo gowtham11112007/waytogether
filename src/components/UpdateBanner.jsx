@@ -37,7 +37,7 @@ export default function UpdateBanner({ inTrip }) {
 
   return (
     <div className="pointer-events-none absolute inset-x-3 top-0 z-[1450] pt-safe">
-      <div className="animate-slide-down pointer-events-auto mt-16 flex items-center gap-3 rounded-2xl bg-ink p-3 pr-2 text-white shadow-[0_10px_30px_rgba(17,24,39,0.3)]" role="status">
+      <div className="animate-slide-down pointer-events-auto mt-16 flex items-center gap-3 rounded-2xl bg-[#111827] p-3 pr-2 text-white shadow-[0_10px_30px_rgba(17,24,39,0.3)]" role="status">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15">
           {apk ? <Download size={19} /> : <RefreshCw size={19} />}
         </span>
@@ -52,7 +52,7 @@ export default function UpdateBanner({ inTrip }) {
             setBusy(true)
             await applyUpdate(update.bundleId).catch(() => setBusy(false))
           }}
-          className="shrink-0 rounded-full bg-white px-3.5 py-2 text-[13px] font-extrabold text-ink disabled:opacity-60"
+          className="shrink-0 rounded-full bg-[#fff] px-3.5 py-2 text-[13px] font-extrabold text-[#111827] disabled:opacity-60"
         >
           {apk ? 'Download' : busy ? 'Updating…' : 'Restart'}
         </button>

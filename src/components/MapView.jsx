@@ -51,6 +51,18 @@ const pinHTML = (color, label, kind = 'dest') =>
     kind === 'regroup' ? '<path d="M10 8v12M10 8h8l-2 3 2 3h-8" stroke="#fff" stroke-width="2" fill="none" stroke-linejoin="round"/>' : '<circle cx="14" cy="13.5" r="5" fill="#fff"/>'
   }</svg>${label ? `<span>${esc(label)}</span>` : ''}</div>`
 
+// A calm map: one-way arrows always hidden ("road_one_way…" in Default, "road_oneway…" in Night);
+// places (shops, fuel, food: "poi_…" layers) and 3D buildings only when switched on in Settings → Appearance.
+function applyLayers(map, { places, buildings }) {
+  for (const l of map.getStyle()?.layers || []) {
+    let show = null
+    if (/one_?way/.test(l.id)) show = false
+    else if (/^poi/.test(l.id)) show = !!places
+    else if (/building-3d/.test(l.id)) show = !!buildings
+    if (show != null) map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none')
+  }
+}
+
 function makeEl(html, className = '') {
   const el = document.createElement('div')
   el.className = `cv-mk ${className}`
@@ -107,6 +119,7 @@ function boundsOf(points) {
 export default function MapView({
   me, friends = [], route, dest, start, regroup, selectedId, onSelect, focus, mode = 'free',
   onUserMove, onCenterChange, padding = { top: 100, bottom: 260 }, styleKey = 'light', interactive = true,
+  places = false, buildings = false,
 }) {
   const box = useRef(null)
   const mapRef = useRef(null)
@@ -116,7 +129,7 @@ export default function MapView({
   const meMarker = useRef(null)
   const placeMarkers = useRef({})
   const latest = useRef({})
-  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode }
+  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode, places, buildings }
 
   // ---- create the map once ----
   useEffect(() => {
@@ -154,10 +167,7 @@ export default function MapView({
       }
     })
     map.on('style.load', () => {
-      // Calm map: hide shop/POI clutter and one-way arrows ("road_one_way…" in Default, "road_oneway…" in Night).
-      for (const l of map.getStyle().layers || []) {
-        if (/poi|one_?way|building-3d/.test(l.id)) map.setLayoutProperty(l.id, 'visibility', 'none')
-      }
+      applyLayers(map, latest.current)
       map.addSource('accuracy', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'accuracy-fill', type: 'fill', source: 'accuracy', paint: { 'fill-color': '#1A73E8', 'fill-opacity': 0.1 } })
       map.addLayer({ id: 'accuracy-line', type: 'line', source: 'accuracy', paint: { 'line-color': '#1A73E8', 'line-opacity': 0.35, 'line-width': 1 } })
@@ -200,6 +210,12 @@ export default function MapView({
     // A full rebuild (not a diff) so 'style.load' always fires and our route layers get added back.
     map.setStyle(MAP_STYLES[styleKey] || MAP_STYLES.light, { diff: false })
   }, [styleKey])
+
+  // ---- places / 3D buildings switched in Settings ----
+  useEffect(() => {
+    const map = mapRef.current
+    if (map && ready.current) applyLayers(map, { places, buildings })
+  }, [places, buildings])
 
   // ---- route + accuracy (GeoJSON layers) ----
   const alongKey = me?.along == null ? -1 : Math.round(me.along / 60)

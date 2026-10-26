@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import { CircleCheck, Fuel, LifeBuoy, ShieldAlert, Wrench } from 'lucide-react'
 import { CHECKIN_OPTIONS, LEVEL } from '../data/trip'
-import { CHECKIN_MS } from '../state/TripContext'
 
 const ICONS = { ok: CircleCheck, stop: Fuel, problem: Wrench, help: LifeBuoy }
 
 // Shown on the phone of a rider who hasn't moved: one tap to answer, or an SOS goes out automatically.
-export default function CheckInPrompt({ request, onAnswer }) {
-  const [left, setLeft] = useState(CHECKIN_MS)
+// `ms`: how long before an automatic SOS (the trip's convoy rules).
+export default function CheckInPrompt({ request, onAnswer, ms }) {
+  const [left, setLeft] = useState(ms)
   useEffect(() => {
     const id = setInterval(() => {
-      const remaining = CHECKIN_MS - (Date.now() - request.receivedAt)
+      const remaining = ms - (Date.now() - request.receivedAt)
       setLeft(Math.max(0, remaining))
       if (remaining <= 0) {
         clearInterval(id)
@@ -18,10 +18,10 @@ export default function CheckInPrompt({ request, onAnswer }) {
       }
     }, 250)
     return () => clearInterval(id)
-  }, [request, onAnswer])
+  }, [request, onAnswer, ms])
 
   const secs = Math.ceil(left / 1000)
-  const pct = (left / CHECKIN_MS) * 100
+  const pct = (left / ms) * 100
 
   return (
     <div className="absolute inset-0 z-[1650] flex flex-col justify-end bg-black/55" role="alertdialog" aria-modal="true" aria-label="Are you OK?">

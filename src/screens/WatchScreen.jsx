@@ -3,7 +3,8 @@ import { Eye, Flag, Loader2, Navigation2, UserPlus } from 'lucide-react'
 import MapView from '../components/MapView'
 import { Avatar, Logo, PrimaryButton, RoleTag, StatusText } from '../components/ui'
 import { googleMapsDirections, openExternal } from '../lib/external'
-import { formatKm, nearestOnRoute, timeAgo } from '../lib/geo'
+import { formatClock, formatKm, formatSpeed, nearestOnRoute, timeAgo } from '../lib/geo'
+import { useMapStyle, useSettings } from '../lib/settings'
 import { getRoute } from '../lib/places'
 import { joinChannel } from '../lib/realtime'
 
@@ -22,6 +23,8 @@ export default function WatchScreen({ code }) {
   const [selectedId, setSelectedId] = useState(null)
   const [focus, setFocus] = useState(null)
   const [mode, setMode] = useState('group')
+  const settings = useSettings()
+  const mapStyle = useMapStyle()
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 5000)
@@ -77,6 +80,7 @@ export default function WatchScreen({ code }) {
             id,
             name: p.name || 'Rider',
             photo: p.photo || null,
+            avatar: p.avatar || null,
             role: p.role || 'member',
             latlng,
             speed: p.speed || 0,
@@ -122,6 +126,9 @@ export default function WatchScreen({ code }) {
           mode={mode}
           onUserMove={() => setMode('free')}
           padding={{ top: 96 + Math.min(emergencies.length, 2) * 72, bottom: 320 }}
+          styleKey={mapStyle}
+          places={settings.mapPlaces}
+          buildings={settings.map3d}
         />
       </div>
 
@@ -147,7 +154,7 @@ export default function WatchScreen({ code }) {
               <span className="block truncate text-[12.5px] font-semibold text-white/80">The convoy has been alerted · {timeAgo(now - m.updatedAt)}</span>
             </button>
             {m.latlng && (
-              <button onClick={() => openExternal(googleMapsDirections(m.latlng))} className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13.5px] font-extrabold text-[#B3121F]">
+              <button onClick={() => openExternal(googleMapsDirections(m.latlng))} className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#fff] px-3.5 text-[13.5px] font-extrabold text-[#B3121F]">
                 <Navigation2 size={16} fill="currentColor" /> Go
               </button>
             )}
@@ -181,7 +188,7 @@ export default function WatchScreen({ code }) {
           <>
             <div className="mt-3 shrink-0">
               <div className="text-[19px] font-extrabold tracking-tight">
-                {eta ? `Arriving around ${new Date(eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : `${members.length} ${members.length === 1 ? 'rider' : 'riders'} on the way`}
+                {eta ? `Arriving around ${formatClock(eta)}` : `${members.length} ${members.length === 1 ? 'rider' : 'riders'} on the way`}
               </div>
               {toGo != null && route && (
                 <>
@@ -206,7 +213,7 @@ export default function WatchScreen({ code }) {
                       </span>
                       <span className="block truncate text-[12.5px] font-medium text-ink-3">
                         <StatusText state={m.state} />
-                        {m.speed > 3 && m.state !== 'offline' && ` · ${m.speed} km/h`} · {timeAgo(now - m.updatedAt)}
+                        {m.speed > 3 && m.state !== 'offline' && ` · ${formatSpeed(m.speed)}`} · {timeAgo(now - m.updatedAt)}
                       </span>
                     </span>
                     {m.toGo != null && <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{formatKm(m.toGo)}</span>}

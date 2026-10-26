@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#ffffff" />
     <title>WayTogether</title>
+    <!-- Apply the dark theme before the first paint (no white flash). Same rule as useDarkTheme(). -->
+    <script>
+      try {
+        var t = (JSON.parse(localStorage.getItem('convoya.settings') || '{}') || {}).theme || 'system'
+        if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.dataset.theme = 'dark'
+      } catch (e) {}
+    </script>
     <meta name="description" content="Keep the Journey Together. A live map for group rides and road trips: see every friend, know who stopped or fell behind, and send an SOS in one hold." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

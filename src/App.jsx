@@ -2,42 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
 import { StatusBar, Style } from '@capacitor/status-bar'
-import { ModalSheet, PrimaryButton } from './components/ui'
+import { usePresence } from './components/ui'
 import { useBattery, useMyLocation } from './lib/location'
 import { currentGoogleProfile, signOut } from './lib/auth'
 import { clearInvite, pendingInvite, watchCodeFromUrl } from './lib/invite'
-import WatchScreen from './screens/WatchScreen'
 import { loadActiveTrip, loadProfile, saveActiveTrip, saveProfile } from './lib/profile'
+import { useDarkTheme } from './lib/settings'
 import HomeScreen from './screens/HomeScreen'
+import SettingsScreen from './screens/SettingsScreen'
 import Setup from './screens/Setup'
-import UpdateBanner from './components/UpdateBanner'
-import { VERSION_LABEL } from './lib/updates'
 import TripScreen from './screens/TripScreen'
+import WatchScreen from './screens/WatchScreen'
+import UpdateBanner from './components/UpdateBanner'
 import { TripProvider, useTrip } from './state/TripContext'
 
-function ProfileSheet({ open, profile, onClose, onSave, onSignOut }) {
-  const [name, setName] = useState(profile?.name || '')
-  useEffect(() => setName(profile?.name || ''), [profile, open])
-  return (
-    <ModalSheet open={open} onClose={onClose} title="Your profile" subtitle={profile?.email ? `Signed in with Google · ${profile.email}` : 'This is the name your friends see on the map.'}>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value.slice(0, 24))}
-        aria-label="Your name"
-        className="h-14 w-full rounded-2xl border border-line px-4 text-[17px] font-semibold outline-none focus:border-brand focus:ring-4 focus:ring-blue-100"
-      />
-      <PrimaryButton className="mt-3" disabled={name.trim().length < 2} onClick={() => onSave(name.trim())}>
-        Save
-      </PrimaryButton>
-      <button onClick={onSignOut} className="mt-2 h-12 w-full rounded-2xl text-[15px] font-bold text-danger">
-        {profile?.google ? 'Sign out' : 'Reset profile'}
-      </button>
-      <p className="pb-1 text-center text-[12px] font-semibold text-ink-3">WayTogether {VERSION_LABEL}</p>
-    </ModalSheet>
-  )
-}
-
-function Screens({ loc, profile, onEditProfile, invite, onInviteUsed }) {
+function Screens({ loc, profile, onOpenSettings, invite, onInviteUsed }) {
   const t = useTrip()
   // Opened an invite link while already riding: stay in the current trip.
   useEffect(() => {
@@ -48,12 +27,33 @@ function Screens({ loc, profile, onEditProfile, invite, onInviteUsed }) {
   // Keyed wrappers: switching between home and a trip plays a short fade-in.
   return t.active ? (
     <div key="trip" className="animate-screen-in h-full w-full">
-      <TripScreen loc={loc} />
+      <TripScreen loc={loc} onOpenSettings={onOpenSettings} />
     </div>
   ) : (
     <div key="home" className="animate-screen-in h-full w-full">
-      <HomeScreen loc={loc} profile={profile} onEditProfile={onEditProfile} invite={invite} onInviteUsed={onInviteUsed} />
+      <HomeScreen loc={loc} profile={profile} onEditProfile={onOpenSettings} invite={invite} onInviteUsed={onInviteUsed} />
     </div>
+  )
+}
+
+// Settings slides in over whichever screen is showing. Signing out leaves a trip properly first,
+// so friends see "left the trip" rather than "offline".
+function SettingsLayer({ open, profile, onClose, onSaveProfile, onSignedOut }) {
+  const t = useTrip()
+  const { mounted, leaving } = usePresence(open, 260)
+  if (!mounted) return null
+  return (
+    <SettingsScreen
+      profile={profile}
+      leaving={leaving}
+      onClose={onClose}
+      onSaveProfile={onSaveProfile}
+      onSignOut={async () => {
+        if (t.active) t.leaveTrip()
+        if (profile.google) await signOut()
+        onSignedOut()
+      }}
+    />
   )
 }
 
@@ -63,7 +63,7 @@ const watchCode = watchCodeFromUrl()
 export default function App() {
   const [profile, setProfile] = useState(loadProfile)
   const [inTrip, setInTrip] = useState(() => !!loadActiveTrip())
-  const [editing, setEditing] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [invite, setInvite] = useState(pendingInvite) // trip code from an invite link
   const inviteUsed = useCallback(() => {
     clearInvite()
@@ -74,6 +74,16 @@ export default function App() {
   const battery = useBattery()
   const inTripRef = useRef(inTrip)
   inTripRef.current = inTrip
+  const settingsRef = useRef(settingsOpen)
+  settingsRef.current = settingsOpen
+
+  // Light or dark theme (Settings → Appearance, or the phone's setting): the page, the browser bar and Android's status bar.
+  const dark = useDarkTheme()
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#161B22' : '#ffffff')
+    if (Capacitor.isNativePlatform()) StatusBar.setStyle({ style: dark ? Style.Dark : Style.Light }).catch(() => {})
+  }, [dark])
 
   // Coming back from Google (web redirect) or an existing Google session: use its name and photo.
   useEffect(() => {
@@ -81,16 +91,18 @@ export default function App() {
       if (!g) return
       setProfile((p) => {
         if (p && !p.google) return p
-        return saveProfile({ ...g, name: p?.google && p.name ? p.name : g.name })
+        // Keep what they chose here: their own name and face.
+        return saveProfile({ ...g, name: p?.google && p.name ? p.name : g.name, avatar: p?.avatar, useAvatar: p?.useAvatar })
       })
     })
   }, [])
 
+  // Android back button: close Settings first, then let the screen underneath handle it.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
-    StatusBar.setStyle({ style: Style.Light }).catch(() => {})
     const sub = NativeApp.addListener('backButton', () => {
-      if (inTripRef.current) window.dispatchEvent(new Event('convoya:back'))
+      if (settingsRef.current) setSettingsOpen(false)
+      else if (inTripRef.current) window.dispatchEvent(new Event('convoya:back'))
       else window.dispatchEvent(new Event('convoya:home-back'))
     })
     return () => {
@@ -116,18 +128,14 @@ export default function App() {
           <Setup onDone={(p) => setProfile(saveProfile(p))} />
         ) : (
           <TripProvider profile={profile} fix={loc.fix} battery={battery} onActiveChange={setInTrip}>
-            <Screens loc={loc} profile={profile} onEditProfile={() => setEditing(true)} invite={invite} onInviteUsed={inviteUsed} />
-            <ProfileSheet
-              open={editing}
+            <Screens loc={loc} profile={profile} onOpenSettings={() => setSettingsOpen(true)} invite={invite} onInviteUsed={inviteUsed} />
+            <SettingsLayer
+              open={settingsOpen}
               profile={profile}
-              onClose={() => setEditing(false)}
-              onSave={(name) => {
-                setProfile(saveProfile({ ...profile, name }))
-                setEditing(false)
-              }}
-              onSignOut={async () => {
-                setEditing(false)
-                if (profile.google) await signOut()
+              onClose={() => setSettingsOpen(false)}
+              onSaveProfile={(p) => setProfile(saveProfile(p))}
+              onSignedOut={() => {
+                setSettingsOpen(false)
                 saveActiveTrip(null)
                 saveProfile(null)
                 setProfile(null)

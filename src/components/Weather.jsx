@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Umbrella, Wind } from 'lucide-react'
+import { formatSpeed } from '../lib/geo'
 import { describe, weatherAt } from '../lib/weather'
 
 // Weather for a spot, refreshed every 15 minutes. null while loading or offline (then nothing shows).
@@ -59,7 +60,7 @@ export function WeatherCard({ here, dest, destName }) {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[14.5px] font-bold">{name}</div>
                 <div className="flex items-center gap-1 truncate text-[12.5px] font-medium text-ink-3">
-                  {label} · <Wind size={12} /> {w.wind} km/h
+                  {label} · <Wind size={12} /> {formatSpeed(w.wind)}
                 </div>
               </div>
               <div className="shrink-0 text-right">

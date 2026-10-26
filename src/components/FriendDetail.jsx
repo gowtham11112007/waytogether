@@ -1,7 +1,7 @@
 import { Battery, BatteryLow, Loader2, MessageCircle, Navigation2, ShieldQuestion, X } from 'lucide-react'
 import { ROLE_LABEL } from '../data/trip'
 import { googleMapsDirections, openExternal } from '../lib/external'
-import { formatDistance, timeAgo } from '../lib/geo'
+import { formatDistance, speedUnit, speedValue, timeAgo } from '../lib/geo'
 import { Avatar, StatusText } from './ui'
 
 export default function FriendDetail({ friend, now, onClose, onPing, onCheckIn }) {
@@ -32,7 +32,7 @@ export default function FriendDetail({ friend, now, onClose, onPing, onCheckIn }
         </div>
         <div>
           <div className="text-[18px] font-extrabold">
-            {friend.state === 'offline' ? '—' : friend.speed} <span className="text-[13px]">km/h</span>
+            {friend.state === 'offline' ? '—' : speedValue(friend.speed)} <span className="text-[13px]">{speedUnit()}</span>
           </div>
           <div className="text-[12px] font-semibold text-ink-3">speed</div>
         </div>

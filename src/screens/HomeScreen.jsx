@@ -6,10 +6,10 @@ import { Avatar, Confetti, ModalSheet, PrimaryButton, useCountUp } from '../comp
 import { WeatherPill } from '../components/Weather'
 import QRScanner from '../components/QRScanner'
 import SearchView from '../components/SearchView'
-import { formatDuration, formatKm, haversine } from '../lib/geo'
-import { getRoute, placeName, searchPlaces } from '../lib/places'
+import { formatDuration, formatKm, formatSpeed, haversine } from '../lib/geo'
+import { getRoute, placeName } from '../lib/places'
 import { isValidCode, loadHistory, normalizeCode } from '../lib/profile'
-import { setSetting, useSettings } from '../lib/settings'
+import { getSettings, setSetting, useMapStyle, useSettings } from '../lib/settings'
 import { freeTripCode, lookupTrip } from '../lib/realtime'
 import { useTrip } from '../state/TripContext'
 
@@ -31,7 +31,7 @@ function LocationBanner({ loc }) {
 
 function PlaceSheet({ place, route, routeState, canCreate, onCreate, onClose }) {
   const [name, setName] = useState(`${place.name} trip`)
-  const [type, setType] = useState('Bike')
+  const [type, setType] = useState(() => getSettings().tripType || 'Bike') // Settings → New trips are for
   const [busy, setBusy] = useState(false)
   const create = async () => {
     setBusy(true)
@@ -250,7 +250,7 @@ function RideStats({ history }) {
     <div className="mt-3 grid grid-cols-3 gap-2">
       <StatTile Icon={RouteIcon} value={total} format={formatKm} label="ridden" delay={80} />
       <StatTile Icon={Flag} value={history.length} format={(v) => Math.round(v)} label={history.length === 1 ? 'trip' : 'trips'} delay={140} />
-      <StatTile Icon={Gauge} value={top} format={(v) => `${Math.round(v)} km/h`} label="top speed" delay={200} />
+      <StatTile Icon={Gauge} value={top} format={formatSpeed} label="top speed" delay={200} />
     </div>
   )
 }
@@ -276,7 +276,7 @@ function RouteTrace({ track }) {
   }, [track])
   if (!geo) return null
   return (
-    <div className="animate-rise mt-3 overflow-hidden rounded-2xl border border-line bg-[#F5F8FD]" style={{ animationDelay: '120ms' }}>
+    <div className="animate-rise mt-3 overflow-hidden rounded-2xl border border-line bg-canvas" style={{ animationDelay: '120ms' }}>
       <svg viewBox={`0 0 ${W} ${H}`} className="block h-[128px] w-full" aria-label="Your route">
         <defs>
           <pattern id="trace-grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -322,6 +322,7 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
   const [historyOpen, setHistoryOpen] = useState(false)
   const [shownTrip, setShownTrip] = useState(null)
   const settings = useSettings()
+  const mapStyle = useMapStyle()
   const history = loadHistory()
   const myLatLng = loc.fix?.latlng || null
   const hasFix = !!myLatLng
@@ -417,7 +418,9 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
           focus={focus}
           mode="free"
           padding={{ top: 90, bottom: view === 'place' ? 430 : history.length ? 390 : 300 }}
-          styleKey={settings.mapStyle}
+          styleKey={mapStyle}
+          places={settings.mapPlaces}
+          buildings={settings.map3d}
         />
       </div>
 
@@ -453,9 +456,12 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
           <div className="pointer-events-auto mb-3 mr-4 flex flex-col items-end gap-2.5 self-end">
             <button
-              onClick={() => setSetting('mapStyle', settings.mapStyle === 'light' ? 'satellite' : settings.mapStyle === 'satellite' ? 'dark' : 'light')}
-              aria-label="Change map style"
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-ink-2 shadow-[0_4px_12px_rgba(17,24,39,0.18)] active:scale-95"
+              onClick={() => setSetting('mapStyle', settings.mapStyle === 'satellite' ? 'auto' : 'satellite')}
+              aria-label={settings.mapStyle === 'satellite' ? 'Back to the map' : 'Satellite view'}
+              aria-pressed={settings.mapStyle === 'satellite'}
+              className={`flex h-12 w-12 items-center justify-center rounded-full shadow-[0_4px_12px_rgba(17,24,39,0.18)] transition-colors active:scale-95 ${
+                settings.mapStyle === 'satellite' ? 'bg-brand text-white' : 'bg-white text-ink-2'
+              }`}
             >
               <Layers size={21} />
             </button>
@@ -540,7 +546,7 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
             <div className="grid grid-cols-3 gap-2.5">
               <StatTile Icon={RouteIcon} value={shownTrip.distance} format={formatKm} label="you rode" />
               <StatTile Icon={Timer} value={tripMinutes(shownTrip)} format={(v) => minutesText(Math.round(v))} label="on the road" delay={60} />
-              <StatTile Icon={Gauge} value={shownTrip.maxSpeed} format={(v) => `${Math.round(v)} km/h`} label="top speed" delay={120} />
+              <StatTile Icon={Gauge} value={shownTrip.maxSpeed} format={formatSpeed} label="top speed" delay={120} />
             </div>
             <RouteTrace track={shownTrip.track} />
             <div className="animate-rise mt-3 rounded-2xl border border-line p-4" style={{ animationDelay: '180ms' }}>

@@ -13,7 +13,66 @@
   --color-warn: #F59E0B;
   --color-danger: #E5383B;
   --color-info: #0284C7;
+  --color-surface: #FFFFFF;
 }
+
+/* Status colours behind badges, chips and alerts (see LEVEL in src/data/trip.js). */
+:root {
+  --lv-ok-soft: #DCFCE7;
+  --lv-ok-text: #15803D;
+  --lv-warn-soft: #FEF3C7;
+  --lv-warn-text: #B45309;
+  --lv-danger-soft: #FEE2E2;
+  --lv-danger-text: #B91C1C;
+  --lv-info-soft: #E0F2FE;
+  --lv-info-text: #0369A1;
+  --lv-muted-soft: #F3F4F6;
+  --lv-muted-text: #6B7280;
+}
+
+/* ---------- Dark theme (Settings → Appearance; "System" follows the phone) ---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-surface: #161B22;
+  --color-canvas: #232B36;
+  --color-ink: #F1F4F8;
+  --color-ink-2: #C5CDD8;
+  --color-ink-3: #8D98A7;
+  --color-line: #2F3845;
+  --lv-ok-soft: rgb(22 163 74 / 0.2);
+  --lv-ok-text: #4ADE80;
+  --lv-warn-soft: rgb(245 158 11 / 0.2);
+  --lv-warn-text: #FBBF24;
+  --lv-danger-soft: rgb(229 56 59 / 0.22);
+  --lv-danger-text: #F87171;
+  --lv-info-soft: rgb(2 132 199 / 0.22);
+  --lv-info-text: #38BDF8;
+  --lv-muted-soft: rgb(156 163 175 / 0.16);
+  --lv-muted-text: #9CA3AF;
+}
+/* Light-only utilities used across the app, re-coloured for the dark theme. */
+[data-theme='dark'] body { background: #0B0F15; }
+[data-theme='dark'] .bg-white { background-color: var(--color-surface); }
+[data-theme='dark'] .border-white { border-color: var(--color-surface); }
+[data-theme='dark'] .ring-white { --tw-ring-color: var(--color-surface); }
+[data-theme='dark'] .bg-blue-50 { background-color: rgb(26 115 232 / 0.2); }
+[data-theme='dark'] .bg-red-50,
+[data-theme='dark'] .bg-red-100 { background-color: rgb(229 56 59 / 0.2); }
+[data-theme='dark'] .bg-amber-50,
+[data-theme='dark'] .bg-amber-100 { background-color: rgb(245 158 11 / 0.2); }
+[data-theme='dark'] .bg-green-50 { background-color: rgb(22 163 74 / 0.2); }
+[data-theme='dark'] .bg-sky-50 { background-color: rgb(2 132 199 / 0.22); }
+[data-theme='dark'] .bg-gray-300 { background-color: #3B4552; }
+[data-theme='dark'] .border-gray-300 { border-color: #3B4552; }
+[data-theme='dark'] .text-brand { color: #6AA6FF; }
+[data-theme='dark'] .text-sky-800,
+[data-theme='dark'] .text-sky-700,
+[data-theme='dark'] .text-sky-600 { color: #7DD3FC; }
+[data-theme='dark'] .text-amber-700,
+[data-theme='dark'] .text-amber-600 { color: #FCD34D; }
+[data-theme='dark'] .focus\:ring-blue-100:focus { --tw-ring-color: rgb(26 115 232 / 0.35); }
+[data-theme='dark'] .maplibregl-ctrl-attrib,
+[data-theme='dark'] .maplibregl-ctrl-attrib-button { background-color: rgb(22 27 34 / 0.85); color: #C5CDD8; }
 
 html,
 body,
@@ -251,6 +310,16 @@ button {
   9%, 42% { opacity: 1; transform: none; }
   48%, 100% { opacity: 0; transform: translateY(-6px) scale(0.98); }
 }
+@keyframes cv-page-in {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+@keyframes cv-page-out {
+  from { transform: none; }
+  to { transform: translateX(100%); }
+}
+.animate-page-in { animation: cv-page-in 0.36s cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-page-out { animation: cv-page-out 0.26s cubic-bezier(0.4, 0, 1, 1) forwards; }
 .animate-screen-in { animation: cv-screen-in 0.36s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .animate-toast-out { animation: cv-toast-out 0.2s ease-in forwards; }
 .animate-sheet-in { animation: cv-sheet-in 0.36s cubic-bezier(0.32, 0.72, 0, 1); }
@@ -290,8 +359,11 @@ button {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-surface);
 }
+[data-theme='dark'] .cv-map { background: #1A1F27; }
+[data-theme='dark'] .fm-name { background: var(--color-surface); color: var(--color-ink); }
+[data-theme='dark'] .place span { color: #F1F4F8; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 3px #000; }
 @media (min-width: 640px) and (min-height: 720px) {
   .app-frame {
     width: 412px;

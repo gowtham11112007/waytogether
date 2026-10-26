@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { App } from '@capacitor/app'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics'
+import { getSettings } from './settings'
 
 const native = Capacitor.isNativePlatform()
 export async function askNotificationPermission() {
@@ -33,6 +34,7 @@ export async function systemNotify(title, body, channel = 'trip') {
 }
 
 export function haptic(kind = 'light') {
+  if (!getSettings().vibrate) return // Settings → Alerts → Vibration
   if (!native) {
     try {
       navigator.vibrate?.(kind === 'danger' ? [200, 100, 200, 100, 400] : 30)

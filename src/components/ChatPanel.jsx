@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { SendHorizontal } from 'lucide-react'
+import { formatClock } from '../lib/geo'
+import { DEFAULT_QUICK, useSettings } from '../lib/settings'
 import { Avatar } from './ui'
-
-const QUICK = ['On my way', 'Slow down', 'Wait for me', 'Stopping soon', 'All good', 'Where are you?', 'Take the next exit', 'Let’s regroup']
 
 export default function ChatPanel({ messages, meId, onSend, onSeen }) {
   const [text, setText] = useState('')
+  const { quickReplies } = useSettings() // Settings → Quick replies
+  const quick = quickReplies?.length ? quickReplies : DEFAULT_QUICK
   const end = useRef(null)
   // Keyed on the newest message, not the count: the history is capped, so its length stops changing.
   const lastId = messages[messages.length - 1]?.id
@@ -33,11 +35,11 @@ export default function ChatPanel({ messages, meId, onSend, onSeen }) {
             const showName = !mine && messages[i - 1]?.from !== m.from
             return (
               <li key={m.id} className={`flex items-end gap-2 ${mine ? 'justify-end' : ''}`}>
-                {!mine && (showName ? <Avatar member={{ id: m.from, name: m.name, photo: m.photo }} size={28} ring={false} badge={false} /> : <span className="w-7 shrink-0" />)}
+                {!mine && (showName ? <Avatar member={{ id: m.from, name: m.name, photo: m.photo, avatar: m.avatar }} size={28} ring={false} badge={false} /> : <span className="w-7 shrink-0" />)}
                 <div className={`max-w-[78%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                   {showName && <span className="mb-0.5 ml-1 text-[11.5px] font-bold text-ink-3">{m.name}</span>}
                   <span className={`rounded-2xl px-3.5 py-2 text-[14.5px] font-medium leading-5 ${mine ? 'rounded-br-md bg-brand text-white' : 'rounded-bl-md bg-canvas text-ink'}`}>{m.text}</span>
-                  <span className="mx-1 mt-0.5 text-[10.5px] font-semibold text-ink-3">{new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                  <span className="mx-1 mt-0.5 text-[10.5px] font-semibold text-ink-3">{formatClock(m.at)}</span>
                 </div>
               </li>
             )
@@ -46,7 +48,7 @@ export default function ChatPanel({ messages, meId, onSend, onSeen }) {
         <div ref={end} />
       </div>
       <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 py-2">
-        {QUICK.map((q) => (
+        {quick.map((q) => (
           <button key={q} onClick={() => send(q)} className="h-9 shrink-0 rounded-full border border-line px-3.5 text-[13px] font-bold text-ink-2 active:bg-canvas">
             {q}
           </button>
