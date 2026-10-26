@@ -4,11 +4,12 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 const KEY = 'convoya.settings'
 export const DEFAULT_QUICK = ['On my way', 'Slow down', 'Wait for me', 'Stopping soon', 'All good', 'Where are you?', 'Take the next exit', 'Let’s regroup']
 export const DEFAULT_SETTINGS = {
+  v: 2, // settings version, for one-time changes to saved settings
   // Look
   theme: 'system', // system | light | dark
   mapStyle: 'auto', // auto (follows the theme) | light | dark | satellite
-  mapPlaces: false, // shops, fuel and food on the map
-  map3d: false, // 3D buildings
+  mapPlaces: true, // petrol, hotels, food, hospitals and more on the map
+  map3d: false, // 3D map: terrain, relief, buildings, tilted view
   showSpeed: true, // speed bubble while riding
   // Units
   units: 'metric', // metric | imperial
@@ -37,6 +38,9 @@ function load() {
     const saved = JSON.parse(localStorage.getItem(KEY)) || {}
     // Before themes existed, "light" was simply the default map: let it follow the theme now.
     if (!('theme' in saved) && saved.mapStyle === 'light') saved.mapStyle = 'auto'
+    // v2: places (petrol, hotels…) are on for everyone; they used to be hidden by default.
+    if ((saved.v || 1) < 2) saved.mapPlaces = true
+    saved.v = DEFAULT_SETTINGS.v
     return { ...DEFAULT_SETTINGS, ...saved, notify: { ...DEFAULT_SETTINGS.notify, ...(saved.notify || {}) } }
   } catch {
     return { ...DEFAULT_SETTINGS }

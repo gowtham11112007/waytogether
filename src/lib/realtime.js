@@ -167,7 +167,7 @@ function localChannel(code, myId, { onSync, onEvent, onStatus }) {
     if (mine && myId) all[myId] = mine
     onSync?.(all)
   }
-  const announce = () => mine && bc.postMessage({ t: 'presence', code, key: myId, payload: mine })
+  const announce = () => mine && !left && bc.postMessage({ t: 'presence', code, key: myId, payload: mine })
   bc.onmessage = ({ data }) => {
     if (data.code !== code) return
     if (data.t === 'presence' && data.key !== myId) {
@@ -190,7 +190,7 @@ function localChannel(code, myId, { onSync, onEvent, onStatus }) {
     }
     if (changed) emit()
   }, 2000)
-  setTimeout(() => {
+  const hello = setTimeout(() => {
     onStatus?.('live')
     bc.postMessage({ t: 'hello', code })
     emit()
@@ -206,6 +206,7 @@ function localChannel(code, myId, { onSync, onEvent, onStatus }) {
       if (left) return // a closed BroadcastChannel throws on postMessage
       left = true
       clearInterval(beat)
+      clearTimeout(hello) // left within 150 ms (React's dev double-mount): the hello would hit a closed channel
       if (myId) bc.postMessage({ t: 'leave', code, key: myId })
       bc.close()
     },

@@ -137,10 +137,10 @@ export default function SettingsScreen({ profile, leaving, onClose, onSaveProfil
             <Segmented label="Map style" value={s.mapStyle} onChange={(v) => setSetting('mapStyle', v)} options={[['auto', 'Auto'], ['light', 'Default'], ['dark', 'Night'], ['satellite', 'Satellite']]} />
           </Field>
           <Line>
-            <Toggle icon={<Store size={19} />} label="Places on the map" hint="Fuel stations, food and shops" on={s.mapPlaces} onChange={(v) => setSetting('mapPlaces', v)} />
+            <Toggle icon={<Store size={19} />} label="Places on the map" hint="Petrol, hotels, food, hospitals and ATMs" on={s.mapPlaces} onChange={(v) => setSetting('mapPlaces', v)} />
           </Line>
           <Line>
-            <Toggle icon={<Building2 size={19} />} label="3D buildings" hint="Best in the navigation view" on={s.map3d} onChange={(v) => setSetting('map3d', v)} />
+            <Toggle icon={<Building2 size={19} />} label="3D map" hint="Hills, buildings and a tilted view" on={s.map3d} onChange={(v) => setSetting('map3d', v)} />
           </Line>
           <Line>
             <Toggle icon={<Gauge size={19} />} label="Speed while riding" hint="Your speed in the corner of the map" on={s.showSpeed} onChange={(v) => setSetting('showSpeed', v)} />

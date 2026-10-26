@@ -9,7 +9,10 @@ Keep the Journey Together. A live map for groups travelling together. Everyone i
   - *Presence* tracks who is in the trip and holds the trip details for people joining. It's updated at most every 12 s, because Supabase rate-limits presence.
 - **GPS** comes from `@capacitor/geolocation` on the home screen. During a trip, `@capacitor-community/background-geolocation` runs a foreground service with a notification, so sharing continues with the screen off.
 - **Search and routes** use Photon (OpenStreetMap search) and OSRM routing. Both are free and need no key.
-- **The map** is MapLibre GL (GPU-rendered, smooth like Google Maps) with OpenFreeMap vector tiles and Esri satellite imagery (free, no key). Light / Night / Satellite styles; 3D heading-up navigation view.
+- **The map** is MapLibre GL (GPU-rendered, smooth like Google Maps) with OpenFreeMap vector tiles, Esri satellite imagery and Mapzen elevation (all free, no key).
+  - *Styles*: Default, Night (brighter roads, highways in gold) and Satellite (imagery with road and place names on top).
+  - *Places*: petrol, hotels and hospitals (from zoom 13), plus food, pharmacies, doctors, banks, ATMs and car service (from zoom 15) show as coloured badges on every style. Where they'd overlap, some are left out instead of piling up.
+  - *3D* (the 3D button on the home and trip maps, or Settings): tilts the map and adds hills, hill shading, 3D buildings and a sky. While riding there's also a 3D heading-up navigation view.
 - **Trip features**: change destination mid-trip (leader), regroup pin anyone can drop, group chat with quick messages, music controls (media keys for Spotify or any player) + shared Spotify playlist, trip stats and history, Convoy Health, SOS with siren.
 - **Invite links**: the invite's Share button and QR code carry `https://<site>/?join=WAY-1234`. Opening it (or scanning the QR with any phone camera) opens WayTogether straight into "Join trip" with the code filled in, even after a detour through Google sign-in. Before handing out a new code, the app checks that nobody is already riding on it.
 - **Convoy Health**: "the group" is the biggest cluster of riders within 800 m of each other (ties go to the leader's cluster), so if *you* are the one behind, your phone says so instead of flagging everyone else. Friends who join from somewhere else show as *On the way* until they reach the route or the group, with no off-route or falling-behind alarms before that. Offline riders don't count towards the group. An SOS or unanswered check-in takes over the summary and pins a red banner with a one-tap **Go** (Google Maps directions) until the rider is safe.
@@ -21,7 +24,7 @@ Keep the Journey Together. A live map for groups travelling together. Everyone i
 - **Motion**: animated welcome scene, a convoy panel you can drag with a finger, sliding tabs, sheets and toasts that animate in and out, markers that pop in. Phones set to *reduce motion* get a still app.
 - **Settings** (tap your avatar on Home, or Trip options → *All settings*), saved on the phone:
   - *Profile*: name, a new generated face (or your Google photo), sign out.
-  - *Appearance*: light / dark / system theme, map style (Auto follows the theme), places (fuel, food, shops) and 3D buildings on the map, speed bubble.
+  - *Appearance*: light / dark / system theme, map style (Auto follows the theme), places on the map (petrol, hotels, food, hospitals, ATMs), 3D map, speed bubble.
   - *Units*: kilometres or miles, 12- or 24-hour time (used everywhere: distances, speeds, ETAs, chat times).
   - *Alerts*: sounds and volume, vibration, spoken alerts, chat sounds, and which kinds of alerts pop up (stops, off-route, behind/ahead, low battery, joins and leaves). SOS and other dangers always alert.
   - *Safety*: emergency number, an emergency contact (call or text them your location from the SOS screen), how long to hold SOS, keep screen on.
@@ -90,7 +93,7 @@ node scripts/generate_web_assets.mjs
 - `src/state/TripContext.jsx`: the trip engine. Covers riders, distances, the route match, Convoy Health, alerts (stops, off-route, falling behind, offline, low battery, SOS) and actions.
 - `src/screens/HomeScreen.jsx`: Google-Maps-style home, "Where to?" search, route preview, create trip, join by code or QR.
 - `src/screens/TripScreen.jsx`: the live trip map, friend cards, status, invite, SOS, regroup pin, change destination, end trip.
-- `src/components/MapView.jsx`: MapLibre map, gliding friend markers, route, camera modes (group / follow / 3D nav).
+- `src/components/MapView.jsx`: MapLibre map, map styles, place badges, the 3D map (terrain, hill shading, buildings), gliding friend markers, route, camera modes (group / follow / 3D nav).
 - `src/components/TripMenu.jsx`, `ChatPanel.jsx`, `MusicSheet.jsx`: trip options, group chat, music.
 
 ## Google sign-in

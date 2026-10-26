@@ -21,7 +21,7 @@ import { inviteText, inviteUrl, watchText } from '../lib/invite'
 import { rainy, weatherAt } from '../lib/weather'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
-import { useMapStyle, useSettings } from '../lib/settings'
+import { setSetting, useMapStyle, useSettings } from '../lib/settings'
 import { useTrip } from '../state/TripContext'
 
 async function shareText(text, notify, copiedTitle) {
@@ -289,6 +289,9 @@ export default function TripScreen({ loc, onOpenSettings }) {
             <Siren size={20} /> {sosActive ? 'SOS ON' : 'SOS'}
           </button>
           <div className="flex flex-col gap-2.5">
+            <FloatBtn label={settings.map3d ? 'Flat map' : '3D map'} active={settings.map3d} onClick={() => setSetting('map3d', !settings.map3d)}>
+              <span className="text-[14px] font-extrabold">3D</span>
+            </FloatBtn>
             <FloatBtn label="Music" onClick={() => setMusicOpen(true)}>
               <Music2 size={20} />
             </FloatBtn>

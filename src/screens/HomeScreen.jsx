@@ -456,6 +456,16 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
           <div className="pointer-events-auto mb-3 mr-4 flex flex-col items-end gap-2.5 self-end">
             <button
+              onClick={() => setSetting('map3d', !settings.map3d)}
+              aria-label={settings.map3d ? 'Flat map' : '3D map'}
+              aria-pressed={settings.map3d}
+              className={`flex h-12 w-12 items-center justify-center rounded-full text-[14px] font-extrabold shadow-[0_4px_12px_rgba(17,24,39,0.18)] transition-colors active:scale-95 ${
+                settings.map3d ? 'bg-brand text-white' : 'bg-white text-ink-2'
+              }`}
+            >
+              3D
+            </button>
+            <button
               onClick={() => setSetting('mapStyle', settings.mapStyle === 'satellite' ? 'auto' : 'satellite')}
               aria-label={settings.mapStyle === 'satellite' ? 'Back to the map' : 'Satellite view'}
               aria-pressed={settings.mapStyle === 'satellite'}

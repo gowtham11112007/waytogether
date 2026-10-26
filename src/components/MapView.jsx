@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Banknote, BedDouble, Coffee, Fuel, Hamburger, Landmark, Pill, Plus, Stethoscope, Utensils, Wrench } from 'lucide-react'
 import * as maplibregl from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -9,25 +10,207 @@ import { avatarFor } from '../lib/avatar'
 // Vite can't follow MapLibre's dynamic worker path, so point it at the bundled file.
 maplibregl.setWorkerUrl(workerUrl)
 
-// Free map styles: OpenFreeMap (OpenStreetMap vector tiles) and Esri imagery. No API keys.
+// Free map styles, no API keys: OpenFreeMap (OpenStreetMap vector tiles) and Esri imagery.
+// Night is "fiord": clearer roads and labels than the very dark "dark" style. Satellite is a hybrid:
+// imagery with Esri's road and place-name overlays, plus OpenStreetMap data for the places layer.
+const OFM = 'https://tiles.openfreemap.org'
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
 export const MAP_STYLES = {
-  light: 'https://tiles.openfreemap.org/styles/liberty',
-  dark: 'https://tiles.openfreemap.org/styles/dark',
+  light: `${OFM}/styles/liberty`,
+  dark: `${OFM}/styles/fiord`,
   satellite: {
     version: 8,
+    glyphs: `${OFM}/fonts/{fontstack}/{range}.pbf`,
+    sprite: `${OFM}/sprites/ofm_f384/ofm`,
     sources: {
-      sat: {
-        type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-        tileSize: 256,
-        maxzoom: 19,
-        attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-      },
+      sat: { type: 'raster', tiles: [`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`], tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' },
+      satRoads: { type: 'raster', tiles: [`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`], tileSize: 256, maxzoom: 19 },
+      satLabels: { type: 'raster', tiles: [`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`], tileSize: 256, maxzoom: 19 },
+      openmaptiles: { type: 'vector', url: `${OFM}/planet` },
     },
-    layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
+    layers: [
+      { id: 'sat', type: 'raster', source: 'sat' },
+      { id: 'sat-roads', type: 'raster', source: 'satRoads' },
+      { id: 'sat-labels', type: 'raster', source: 'satLabels' },
+    ],
   },
 }
-const OSM_ATTRIBUTION = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+
+// Places riders look for (OpenMapTiles "poi" classes), on every map style: a coloured badge with a white icon
+// from the app's own icon set ([icon, colour, line weight]). Petrol, hotels and hospitals show from zoom 13;
+// food, pharmacies, doctors, banks, ATMs and car services from zoom 15. Badges that would overlap are left out.
+const PLACE_BADGES = {
+  fuel: [Fuel, '#0891B2'],
+  lodging: [BedDouble, '#8B5CF6'],
+  hospital: [Plus, '#E5383B', 3.4],
+  doctors: [Stethoscope, '#E5383B'],
+  pharmacy: [Pill, '#E5383B'],
+  restaurant: [Utensils, '#F97316'],
+  fast_food: [Hamburger, '#F97316'],
+  cafe: [Coffee, '#F97316'],
+  car: [Wrench, '#64748B'],
+  bank: [Landmark, '#16A34A'],
+  atm: [Banknote, '#16A34A'],
+}
+const KEY_PLACES = ['fuel', 'lodging', 'hospital']
+const MORE_PLACES = Object.keys(PLACE_BADGES).filter((c) => !KEY_PLACES.includes(c))
+const isEssential = ['match', ['get', 'class'], Object.keys(PLACE_BADGES), true, false]
+
+// Badge images: drawn once on a canvas at 3x (sharp on any phone), then added to each style that loads.
+const BADGE_PX = 26
+const BADGE_RATIO = 3
+let badgeCache = null
+function shape(el) {
+  const n = (k) => parseFloat(el.getAttribute(k)) || 0
+  if (el.tagName === 'path') return new Path2D(el.getAttribute('d'))
+  const p = new Path2D()
+  if (el.tagName === 'circle') p.arc(n('cx'), n('cy'), n('r'), 0, Math.PI * 2)
+  else if (el.tagName === 'rect') p.roundRect ? p.roundRect(n('x'), n('y'), n('width'), n('height'), n('rx')) : p.rect(n('x'), n('y'), n('width'), n('height'))
+  return p
+}
+function badgeImages() {
+  if (badgeCache) return badgeCache
+  badgeCache = {}
+  const size = BADGE_PX * BADGE_RATIO
+  const r = size / 2
+  for (const [cls, [Icon, color, weight = 2.4]] of Object.entries(PLACE_BADGES)) {
+    const ctx = Object.assign(document.createElement('canvas'), { width: size, height: size }).getContext('2d')
+    ctx.beginPath()
+    ctx.arc(r, r, r - BADGE_RATIO, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.lineWidth = 2 * BADGE_RATIO
+    ctx.strokeStyle = '#fff'
+    ctx.stroke()
+    // The icon in white, 14 px across in the middle (Lucide icons are line drawings on a 24-unit grid).
+    const icon = 14 * BADGE_RATIO
+    ctx.translate(r - icon / 2, r - icon / 2)
+    ctx.scale(icon / 24, icon / 24)
+    Object.assign(ctx, { lineWidth: weight, lineCap: 'round', lineJoin: 'round' })
+    const svg = new DOMParser().parseFromString(renderToStaticMarkup(<Icon />), 'image/svg+xml').documentElement
+    for (const el of svg.children) ctx.stroke(shape(el))
+    badgeCache[cls] = ctx.getImageData(0, 0, size, size)
+  }
+  return badgeCache
+}
+
+// Night map roads, brighter than the style's own: highways and main roads in a soft gold (like the Default map's yellow).
+const NIGHT_ROADS = [
+  ['highway_major_casing', 'line-color', 'hsl(225,28%,27%)'],
+  ['highway_major_inner', 'line-color', ['match', ['get', 'class'], ['trunk', 'primary'], 'hsl(38,38%,47%)', 'hsl(224,20%,58%)']],
+  ['highway_motorway_inner', 'line-color', 'hsl(36,45%,52%)'],
+  ['highway_name_other', 'text-color', 'hsl(220,30%,80%)'],
+]
+// Elevation for the 3D map (Mapzen terrain tiles on AWS, free).
+const DEM = { type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 15, attribution: 'Terrain © Mapzen' }
+
+function addBadges(map, id, classes, minzoom, night, beforeId) {
+  if (map.getLayer(id)) return
+  map.addLayer(
+    {
+      id,
+      type: 'symbol',
+      source: 'openmaptiles',
+      'source-layer': 'poi',
+      minzoom,
+      filter: ['match', ['get', 'class'], classes, true, false],
+      layout: {
+        'icon-image': ['concat', 'cv-badge-', ['get', 'class']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.8, 17, 1],
+        'icon-padding': 1,
+        'text-field': ['step', ['zoom'], '', 15, ['coalesce', ['get', 'name_en'], ['get', 'name']]],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 11.5,
+        'text-anchor': 'top',
+        'text-offset': [0, 1.1],
+        'text-max-width': 8,
+        'text-optional': true,
+      },
+      paint: { 'text-color': night ? '#E8EDF3' : '#2F3A48', 'text-halo-color': night ? 'rgba(8,12,20,0.92)' : 'rgba(255,255,255,0.96)', 'text-halo-width': 1.5 },
+    },
+    beforeId,
+  )
+}
+
+// Our additions to whichever style loaded: place badges, clearer labels, and the 3D pieces (terrain, relief, buildings, sky).
+function addMapExtras(map, night) {
+  const layers = map.getStyle()?.layers || []
+  const firstSymbol = layers.find((l) => l.type === 'symbol')?.id
+  const satellite = !!map.getLayer('sat')
+  if (!map.getSource('cv-dem')) map.addSource('cv-dem', DEM)
+  // Relief shading goes under rivers, roads and buildings so it never greys them out.
+  // Satellite skips it: the imagery has real shadows already.
+  if (!satellite && !map.getLayer('cv-hillshade')) {
+    if (!map.getSource('cv-hill')) map.addSource('cv-hill', DEM)
+    const under = layers.find((l) => ['waterway', 'transportation', 'building', 'aeroway'].includes(l['source-layer']))?.id
+    map.addLayer(
+      {
+        id: 'cv-hillshade',
+        type: 'hillshade',
+        source: 'cv-hill',
+        layout: { visibility: 'none' },
+        // Strong when zoomed out (hills and valleys), faint at street level where the coarse elevation data would smudge.
+        paint: {
+          'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 13, 0.4, 16, 0.12],
+          ...(night
+            ? { 'hillshade-shadow-color': 'rgba(0,4,10,0.65)', 'hillshade-highlight-color': 'rgba(150,175,210,0.2)', 'hillshade-accent-color': 'rgba(0,4,10,0.3)' }
+            : { 'hillshade-shadow-color': 'rgba(40,54,72,0.55)', 'hillshade-highlight-color': 'rgba(255,255,255,0.35)', 'hillshade-accent-color': 'rgba(40,54,72,0.22)' }),
+        },
+      },
+      under || firstSymbol,
+    )
+  }
+  // Default map: woods and grass a little greener, so hills, parks and towns read apart.
+  if (!night && !satellite) {
+    if (map.getLayer('landcover_wood')) map.setPaintProperty('landcover_wood', 'fill-opacity', 0.6)
+    if (map.getLayer('landcover_grass')) map.setPaintProperty('landcover_grass', 'fill-opacity', 0.45)
+  }
+  if (night) for (const [id, prop, value] of NIGHT_ROADS) if (map.getLayer(id)) map.setPaintProperty(id, prop, value)
+  try {
+    map.setSky({ 'sky-color': night ? '#0B1322' : '#86B3F0', 'horizon-color': night ? '#20304A' : '#D6E6FB', 'fog-color': night ? '#121A28' : '#EEF3FA', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.85 })
+  } catch {
+    /* engines without a sky */
+  }
+  if (!map.getSource('openmaptiles')) return
+  // Night has no 3D buildings of its own.
+  if (!layers.some((l) => l.type === 'fill-extrusion') && !map.getLayer('cv-buildings-3d')) {
+    map.addLayer(
+      {
+        id: 'cv-buildings-3d',
+        type: 'fill-extrusion',
+        source: 'openmaptiles',
+        'source-layer': 'building',
+        minzoom: 14,
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-extrusion-color': night ? '#2C3A4F' : '#D9DEE5',
+          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+          'fill-extrusion-opacity': 0.88,
+        },
+      },
+      firstSymbol,
+    )
+  }
+  for (const [cls, img] of Object.entries(badgeImages())) {
+    if (!map.hasImage(`cv-badge-${cls}`)) map.addImage(`cv-badge-${cls}`, img, { pixelRatio: BADGE_RATIO })
+  }
+  // Under town and village names (they keep priority when crowded), above road names and the style's own places.
+  const placeNames = layers.find((l) => l.type === 'symbol' && l['source-layer'] === 'place')?.id
+  addBadges(map, 'cv-places-more', MORE_PLACES, 15, night, placeNames)
+  addBadges(map, 'cv-places-key', KEY_PLACES, 13, night, placeNames)
+  for (const l of layers) {
+    if (l.id.startsWith('cv-')) continue
+    // Clearer names: a stronger halo, so labels read over roads, parks and buildings.
+    if (l.type === 'symbol' && l.layout?.['text-field']) {
+      map.setPaintProperty(l.id, 'text-halo-width', 1.6)
+      map.setPaintProperty(l.id, 'text-halo-color', night ? 'rgba(10,14,22,0.92)' : 'rgba(255,255,255,0.95)')
+    }
+    // The style's own place icons leave the essentials to our badges (no doubles).
+    if (l['source-layer'] === 'poi') map.setFilter(l.id, ['all', l.filter || true, ['!', isEssential]])
+  }
+}
+
 const INDIA = [78.9, 20.6]
 const ll = (latlng) => [latlng[1], latlng[0]] // [lat,lng] → MapLibre [lng,lat]
 const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
@@ -52,14 +235,19 @@ const pinHTML = (color, label, kind = 'dest') =>
   }</svg>${label ? `<span>${esc(label)}</span>` : ''}</div>`
 
 // A calm map: one-way arrows always hidden ("road_one_way…" in Default, "road_oneway…" in Night);
-// places (shops, fuel, food: "poi_…" layers) and 3D buildings only when switched on in Settings → Appearance.
+// places ("poi_…" and our badges) and the 3D map (buildings, relief, terrain) as switched in Settings → Appearance.
 function applyLayers(map, { places, buildings }) {
   for (const l of map.getStyle()?.layers || []) {
     let show = null
     if (/one_?way/.test(l.id)) show = false
-    else if (/^poi/.test(l.id)) show = !!places
-    else if (/building-3d/.test(l.id)) show = !!buildings
+    else if (/^poi|^cv-places/.test(l.id)) show = !!places
+    else if (/building-3d|^cv-hillshade/.test(l.id)) show = !!buildings
     if (show != null) map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none')
+  }
+  try {
+    if (map.getSource('cv-dem')) map.setTerrain(buildings ? { source: 'cv-dem', exaggeration: 1.35 } : null)
+  } catch {
+    /* engines without terrain */
   }
 }
 
@@ -129,7 +317,7 @@ export default function MapView({
   const meMarker = useRef(null)
   const placeMarkers = useRef({})
   const latest = useRef({})
-  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode, places, buildings }
+  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode, places, buildings, night: styleKey === 'dark' }
 
   // ---- create the map once ----
   useEffect(() => {
@@ -141,14 +329,22 @@ export default function MapView({
       attributionControl: false,
       interactive,
       fadeDuration: 0,
-      maxPitch: 65,
+      maxPitch: 75,
       dragRotate: true,
       pitchWithRotate: true,
       refreshExpiredTiles: false,
     })
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: styleKey === 'satellite' ? OSM_ATTRIBUTION : undefined }), 'bottom-left')
-    // Start the credits collapsed to the small (i) button; tapping it shows them.
-    map.once('load', () => box.current?.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'))
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
+    // Start the credits collapsed to the small (i) button; tapping it shows them. MapLibre opens them once,
+    // when the first credit arrives, so close them right then (not after loading, which takes a while in 3D).
+    const attrib = box.current.querySelector('.maplibregl-ctrl-attrib')
+    const creditEvents = ['styledata', 'sourcedata', 'terrain']
+    const collapseCredits = () => {
+      if (!attrib?.classList.contains('maplibregl-compact')) return
+      attrib.classList.remove('maplibregl-compact-show')
+      creditEvents.forEach((e) => map.off(e, collapseCredits))
+    }
+    creditEvents.forEach((e) => map.on(e, collapseCredits))
     // Any touch, drag, pinch or scroll on the map hands the camera to the user (like Google Maps).
     // Listening on the DOM catches gestures that start mid-animation, which MapLibre's movestart misses.
     const handBack = () => latest.current.onUserMove?.()
@@ -167,6 +363,7 @@ export default function MapView({
       }
     })
     map.on('style.load', () => {
+      addMapExtras(map, latest.current.night)
       applyLayers(map, latest.current)
       map.addSource('accuracy', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'accuracy-fill', type: 'fill', source: 'accuracy', paint: { 'fill-color': '#1A73E8', 'fill-opacity': 0.1 } })
@@ -216,6 +413,13 @@ export default function MapView({
     const map = mapRef.current
     if (map && ready.current) applyLayers(map, { places, buildings })
   }, [places, buildings])
+  const tilted = useRef(buildings)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || tilted.current === buildings) return
+    tilted.current = buildings
+    if (latest.current.mode === 'free') map.easeTo({ pitch: buildings ? 55 : 0, duration: 900 })
+  }, [buildings])
 
   // ---- route + accuracy (GeoJSON layers) ----
   const alongKey = me?.along == null ? -1 : Math.round(me.along / 60)
@@ -340,10 +544,10 @@ export default function MapView({
     if (!map || !focus) return
     if (focus.padding) map.setPadding({ top: focus.padding.top, bottom: focus.padding.bottom, left: 0, right: 0 })
     if (focus.type === 'fit' && focus.points?.length > 1) {
-      map.fitBounds(boundsOf(focus.points), { padding: MARGIN, maxZoom: 16, duration: 900, bearing: 0, pitch: 0 })
+      map.fitBounds(boundsOf(focus.points), { padding: MARGIN, maxZoom: 16, duration: 900, bearing: 0, pitch: buildings ? 45 : 0 })
     } else {
       const p = focus.type === 'fit' ? focus.points?.[0] : focus.latlng
-      if (p) map.easeTo({ center: ll(p), zoom: focus.zoom ?? Math.max(map.getZoom(), 15.5), bearing: 0, pitch: 0, duration: 900 })
+      if (p) map.easeTo({ center: ll(p), zoom: focus.zoom ?? Math.max(map.getZoom(), 15.5), bearing: 0, pitch: buildings ? 50 : 0, duration: 900 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus])
@@ -361,7 +565,7 @@ export default function MapView({
         center: ll(me.latlng),
         zoom: nav ? Math.max(map.getZoom(), 16.5) : map.getZoom() < 13 ? 15.5 : map.getZoom(),
         bearing: nav ? me.heading || 0 : 0,
-        pitch: nav ? 55 : 0,
+        pitch: nav ? 60 : buildings ? 50 : 0,
         offset: nav ? [0, 110] : [0, 0], // in navigation view you sit low on screen, road ahead visible
         duration: first ? 0 : 1000,
       })
@@ -372,19 +576,19 @@ export default function MapView({
       if (!pts.length) return
       fitted.current = true
       if (pts.length === 1) {
-        map.easeTo({ center: ll(pts[0]), zoom: first ? 15.5 : map.getZoom(), bearing: 0, pitch: 0, duration: first ? 0 : 1000 })
+        map.easeTo({ center: ll(pts[0]), zoom: first ? 15.5 : map.getZoom(), bearing: 0, pitch: buildings ? 50 : 0, duration: first ? 0 : 1000 })
         return
       }
       const b = boundsOf(pts)
-      const cam = map.cameraForBounds(b, { padding: MARGIN, maxZoom: 16 })
+      const cam = map.cameraForBounds(b, { padding: MARGIN, maxZoom: 16, pitch: buildings ? 50 : 0 })
       if (!cam) return
       const z = map.getZoom()
       // Zoom out as soon as someone would leave the screen; zoom in only with a full level to spare (no jitter).
       const zoom = first || cam.zoom < z || cam.zoom > z + 1 ? cam.zoom : z
-      map.easeTo({ center: cam.center, zoom, bearing: 0, pitch: 0, duration: first ? 0 : 1000 })
+      map.easeTo({ center: cam.center, zoom, bearing: 0, pitch: buildings ? 50 : 0, duration: first ? 0 : 1000 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, pointsKey, me?.heading, padTop, padBottom])
+  }, [mode, pointsKey, me?.heading, padTop, padBottom, buildings])
 
   return <div ref={box} className="cv-map h-full w-full" style={{ '--map-bottom': `${padding.bottom}px` }} />
 }
