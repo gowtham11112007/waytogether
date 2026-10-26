@@ -7,6 +7,7 @@ import { appInBackground, askNotificationPermission, haptic, systemNotify } from
 import { getRoute } from '../lib/places'
 import { addHistory, clearChat, loadActiveTrip, loadChat, newId, newTripCode, saveActiveTrip, saveChat } from '../lib/profile'
 import { joinChannel } from '../lib/realtime'
+import { speak } from '../lib/speech'
 
 const PACK_GAP = 800 // riders within 800 m of each other count as "together"
 const OFFLINE_AFTER = 45000 // no update for 45 s → offline
@@ -99,7 +100,14 @@ function healthOf(members) {
   return { ...base, level: 'warn', title: 'Convoy spreading', line }
 }
 
-const freshStats = () => ({ startedAt: Date.now(), distance: 0, maxSpeed: 0, last: null, riders: [] })
+const freshStats = () => ({ startedAt: Date.now(), distance: 0, maxSpeed: 0, last: null, riders: [], track: [] })
+
+// Keep at most `max` points of a path, spread evenly (always keeping the last one).
+function thin(points, max) {
+  if (points.length <= max) return points
+  const step = (points.length - 1) / (max - 1)
+  return Array.from({ length: max }, (_, i) => points[Math.round(i * step)])
+}
 
 export function TripProvider({ profile, fix, battery, onActiveChange, children }) {
   const [active, setActiveState] = useState(loadActiveTrip) // { code, role, meta, status, stats }
@@ -165,6 +173,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         } else chime('info')
       }
       if (appInBackground() && a.level !== 'ok') systemNotify(a.title, a.body, a.level === 'danger' ? 'urgent' : 'trip')
+      if (sound && (a.level === 'danger' || a.level === 'warn' || a.kind === 'trip' || a.kind === 'regroup')) speak(a.title)
     },
     [notify],
   )
@@ -296,12 +305,14 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
             return next
           })
           chime('msg')
+          speak(`${evt.msg.name} says: ${evt.msg.text}`)
           if (appInBackground()) systemNotify(evt.msg.name, evt.msg.text, 'chat')
         } else if (evt.type === 'checkin') {
           if (evt.to === profile.id) {
             setCheckinRequest({ id: evt.id, fromName: evt.fromName, receivedAt: Date.now() })
             playSiren(2)
             haptic('danger')
+            speak(`${evt.fromName} is checking on you. Are you OK?`)
             systemNotify(`${evt.fromName} is checking on you`, 'You haven’t moved for a while. Tap to answer, or an SOS is sent in 2 minutes.', 'urgent')
           } else {
             setCheckins((c) => ({ ...c, [evt.to]: { id: evt.id, askedAt: evt.at, byName: evt.fromName, byMe: false } }))
@@ -395,6 +406,17 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       } else if (d > 5) s.last = fix
     } else s.last = fix
     if (fix.speed > s.maxSpeed && fix.speed < 250) s.maxSpeed = fix.speed
+    // Breadcrumbs every ~30 m, drawn as "your route" on the trip summary. A point that would mean
+    // moving faster than 250 km/h is a GPS glitch, not a ride: leave it out so the drawing has no spikes.
+    const track = s.track || (s.track = [])
+    const lastPoint = track[track.length - 1]
+    const step = lastPoint ? haversine(lastPoint, fix.latlng) : Infinity
+    const secs = Math.max(1, (fix.at - (s.trackAt || 0)) / 1000)
+    if (!lastPoint || (step > 30 && step / secs < 70)) {
+      track.push([+fix.latlng[0].toFixed(5), +fix.latlng[1].toFixed(5)])
+      s.trackAt = fix.at
+      if (track.length > 600) s.track = thin(track, 400)
+    }
     // Rode on after a fuel/food/rest stop without tapping "Back on Road": do it for them.
     if (RESUMABLE.has(myStatus)) {
       if (!stopAnchor.current) stopAnchor.current = fix.latlng
@@ -724,6 +746,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       riders: [profile.name, ...s.riders.filter((n) => n !== profile.name)],
       alerts: alerts.length,
       messages: messages.length,
+      track: thin(s.track || [], 250),
     }
     addHistory(entry)
     clearChat(cur.code)
@@ -839,6 +862,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     markChatSeen: () => setChatSeenAt(Date.now()),
     toast,
     notify,
+    addAlert: pushAlert,
     dismissToast: () => setToast(null),
     ended,
     summary,

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { LEVEL, STATUS } from '../data/trip'
 import { avatarFor } from '../lib/avatar'
@@ -55,42 +55,97 @@ export function useEscape(active, onEscape) {
   }, [active, onEscape])
 }
 
-// Modal bottom sheet with a dimmed backdrop.
+export const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+// Keeps something on screen for `ms` after it's dismissed, so it can animate out.
+export function usePresence(show, ms = 240) {
+  const [mounted, setMounted] = useState(show)
+  useEffect(() => {
+    if (show) {
+      setMounted(true)
+      return
+    }
+    const id = setTimeout(() => setMounted(false), ms)
+    return () => clearTimeout(id)
+  }, [show, ms])
+  return { mounted: show || mounted, leaving: !show && mounted }
+}
+
+// A number that counts up to `target` (stats on the summary and home screens).
+export function useCountUp(target, ms = 900) {
+  const [value, setValue] = useState(() => (reducedMotion() ? target : 0))
+  useEffect(() => {
+    if (!Number.isFinite(target) || reducedMotion()) {
+      setValue(target)
+      return
+    }
+    let raf = 0
+    const t0 = performance.now()
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / ms)
+      setValue(target * (1 - (1 - k) ** 3))
+      if (k < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, ms])
+  return value
+}
+
+// Modal bottom sheet with a dimmed backdrop; slides up in and back down out.
 export function ModalSheet({ open, onClose, title, subtitle, children, tone = 'light' }) {
   useEscape(open, onClose)
-  if (!open) return null
+  const { mounted, leaving } = usePresence(open)
+  // While sliding away, keep showing what it showed last (the parent has usually cleared it by then).
+  const last = useRef(null)
+  if (open) last.current = { title, subtitle, children }
+  if (!mounted || !last.current) return null
+  const c = open ? { title, subtitle, children } : last.current
   return (
-    <div className="absolute inset-0 z-[1200] flex flex-col justify-end">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/35" />
+    <div className={`absolute inset-0 z-[1200] flex flex-col justify-end ${leaving ? 'pointer-events-none' : ''}`}>
+      <button aria-label="Close" onClick={onClose} className={`absolute inset-0 bg-black/35 ${leaving ? 'animate-backdrop-out' : 'animate-backdrop-in'}`} />
       <section
         role="dialog"
         aria-modal="true"
-        className={`animate-fade-up relative rounded-t-[28px] px-5 pb-safe pt-2 shadow-2xl ${tone === 'light' ? 'bg-white' : 'bg-ink text-white'}`}
+        className={`relative rounded-t-[28px] px-5 pb-safe pt-2 shadow-2xl ${leaving ? 'animate-sheet-out' : 'animate-sheet-in'} ${tone === 'light' ? 'bg-white' : 'bg-ink text-white'}`}
       >
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-300" />
-        {title && (
+        {c.title && (
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-[20px] font-extrabold tracking-tight">{title}</h2>
-              {subtitle && <p className="mt-0.5 text-sm font-medium text-ink-3">{subtitle}</p>}
+              <h2 className="text-[20px] font-extrabold tracking-tight">{c.title}</h2>
+              {c.subtitle && <p className="mt-0.5 text-sm font-medium text-ink-3">{c.subtitle}</p>}
             </div>
             <button onClick={onClose} aria-label="Close" className="flex h-10 w-10 items-center justify-center rounded-full bg-canvas text-ink-2">
               <X size={20} />
             </button>
           </div>
         )}
-        {children}
+        {c.children}
       </section>
     </div>
   )
 }
 
-export function Toast({ toast, onAction, onClose }) {
+// Where toasts appear: the newest slides in, and a dismissed one slides away instead of vanishing.
+export function ToastSlot({ toast, onAction, onClose }) {
+  const { mounted, leaving } = usePresence(!!toast, 200)
+  const last = useRef(null)
+  if (toast) last.current = toast
+  if (!mounted || !last.current) return null
+  const shown = last.current
+  return <Toast key={shown.id} toast={shown} leaving={leaving} onAction={() => !leaving && onAction?.(shown)} onClose={onClose} />
+}
+
+export function Toast({ toast, onAction, onClose, leaving }) {
   if (!toast) return null
   const lv = LEVEL[toast.level || 'info']
   const member = toast.member
   return (
-    <div className="animate-slide-down pointer-events-auto flex items-center gap-3 rounded-2xl bg-white p-3 pr-2 shadow-[0_10px_30px_rgba(17,24,39,0.18)]" role="status">
+    <div
+      className={`pointer-events-auto flex items-center gap-3 rounded-2xl bg-white p-3 pr-2 shadow-[0_10px_30px_rgba(17,24,39,0.18)] ${leaving ? 'animate-toast-out' : 'animate-slide-down'}`}
+      role="status"
+    >
       {member ? (
         <Avatar member={member} size={40} />
       ) : (
@@ -152,17 +207,69 @@ export function Logo({ size = 36 }) {
 
 export function ConfirmDialog({ open, title, body, confirmLabel, danger, onConfirm, onCancel }) {
   useEscape(open, onCancel)
-  if (!open) return null
+  const { mounted, leaving } = usePresence(open, 180)
+  const last = useRef(null)
+  if (open) last.current = { title, body, confirmLabel, danger }
+  if (!mounted || !last.current) return null
+  const c = open ? { title, body, confirmLabel, danger } : last.current
   return (
-    <div className="absolute inset-0 z-[1800] flex items-center justify-center bg-black/45 p-6" role="alertdialog" aria-modal="true" aria-label={title}>
-      <div className="animate-pop w-full max-w-[340px] rounded-3xl bg-white p-6">
-        <div className="text-[19px] font-extrabold tracking-tight">{title}</div>
-        {body && <p className="mt-1.5 text-[14.5px] font-medium leading-[21px] text-ink-2">{body}</p>}
+    <div
+      className={`absolute inset-0 z-[1800] flex items-center justify-center bg-black/45 p-6 ${leaving ? 'animate-backdrop-out pointer-events-none' : 'animate-backdrop-in'}`}
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={c.title}
+    >
+      <div className={`w-full max-w-[340px] rounded-3xl bg-white p-6 ${leaving ? 'animate-pop-out' : 'animate-pop'}`}>
+        <div className="text-[19px] font-extrabold tracking-tight">{c.title}</div>
+        {c.body && <p className="mt-1.5 text-[14.5px] font-medium leading-[21px] text-ink-2">{c.body}</p>}
         <div className="mt-5 grid grid-cols-2 gap-2.5">
           <button onClick={onCancel} className="h-12 rounded-2xl border border-line text-[15px] font-bold text-ink">Cancel</button>
-          <button onClick={onConfirm} className={`h-12 rounded-2xl text-[15px] font-bold text-white ${danger ? 'bg-danger' : 'bg-brand'}`}>{confirmLabel}</button>
+          <button onClick={onConfirm} className={`h-12 rounded-2xl text-[15px] font-bold text-white ${c.danger ? 'bg-danger' : 'bg-brand'}`}>{c.confirmLabel}</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+const CONFETTI = ['#1A73E8', '#16A34A', '#F59E0B', '#E5383B', '#0284C7', '#A855F7', '#F472B6']
+
+// A one-off burst of confetti (finished trips). The parent removes it after a few seconds.
+export function Confetti({ count = 80 }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: count }, (_, i) => ({
+        left: Math.random() * 100,
+        delay: Math.random() * 0.5,
+        dur: 1.9 + Math.random() * 1.5,
+        dx: (Math.random() - 0.5) * 180,
+        rot: (Math.random() - 0.5) * 1440,
+        w: 6 + Math.random() * 6,
+        h: 8 + Math.random() * 9,
+        round: Math.random() < 0.3,
+        color: CONFETTI[i % CONFETTI.length],
+      })),
+    [count],
+  )
+  if (reducedMotion()) return null
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1260] overflow-hidden" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className="confetti"
+          style={{
+            left: `${p.left}%`,
+            width: p.w,
+            height: p.h,
+            background: p.color,
+            borderRadius: p.round ? '50%' : 2,
+            animationDelay: `${p.delay}s`,
+            animationDuration: `${p.dur}s`,
+            '--dx': `${p.dx}px`,
+            '--rot': `${p.rot}deg`,
+          }}
+        />
+      ))}
     </div>
   )
 }

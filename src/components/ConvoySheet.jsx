@@ -1,10 +1,11 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, MessageCircle, Settings2, Share2, UserPlus, Zap } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { LEVEL, STATUS } from '../data/trip'
 import { formatDistance, formatKm, timeAgo } from '../lib/geo'
 import { inviteUrl } from '../lib/invite'
 import ChatPanel from './ChatPanel'
+import { WeatherCard } from './Weather'
 import { Avatar, RoleTag, StatusText } from './ui'
 
 export const PEEK_HEIGHT = 250
@@ -26,11 +27,15 @@ function MyStatusButton({ me, onClick }) {
   )
 }
 
-function FriendChip({ friend, onClick }) {
+function FriendChip({ friend, onClick, delay = 0 }) {
   const lv = LEVEL[(STATUS[friend.state] || STATUS.riding).level]
   const warn = friend.state !== 'riding'
   return (
-    <button onClick={onClick} className={`flex w-[76px] shrink-0 flex-col items-center gap-1.5 active:scale-95 ${friend.state === 'offline' ? 'opacity-60' : ''}`}>
+    <button
+      onClick={onClick}
+      className={`animate-rise flex w-[76px] shrink-0 flex-col items-center gap-1.5 active:scale-95 ${friend.state === 'offline' ? 'opacity-60' : ''}`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <Avatar member={friend} size={54} />
       <span className="mt-1 max-w-[72px] truncate text-[13px] font-bold leading-4">{friend.name}</span>
       <span className="text-[12px] font-semibold leading-3" style={{ color: warn ? lv.text : '#6B7280' }}>
@@ -135,25 +140,68 @@ function duration(ms) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
+const TABS = [
+  ['friends', 'Friends'],
+  ['chat', 'Chat'],
+  ['alerts', 'Alerts'],
+  ['trip', 'Trip'],
+]
+
 export default function ConvoySheet({
   me, friends, members, health, alerts, unread, markSeen, messages, unreadChat, markChatSeen, onSend,
   progress, trip, code, now, stats, tab, setTab, expanded, setExpanded,
-  onSelectFriend, onOpenStatus, onAlertAction, onInvite, onOptions, detail,
+  onSelectFriend, onOpenStatus, onAlertAction, onInvite, onOptions, onDragChange, detail,
 }) {
-  const drag = useRef(null)
+  const sheet = useRef(null)
+  const drag = useRef(null) // a finger dragging the sheet: { id, y, h, lastY, lastT, v, moved }
+  const swallowUntil = useRef(0)
+  const [dragH, setDragH] = useState(null)
   const byId = Object.fromEntries(members.map((m) => [m.id, m]))
+  const restH = detail ? DETAIL_HEIGHT : PEEK_HEIGHT
+  const maxH = () => (sheet.current?.parentElement?.clientHeight || 800) - 84
+  // Dragged up past the peek: the full panel (tabs) is already showing.
+  const full = dragH != null ? dragH > restH + 70 : expanded
 
-  const onHandleDown = (e) => {
-    drag.current = e.clientY
+  // The sheet follows your finger (from the handle or the summary row). Let go past halfway, or flick, to open or close.
+  const onDown = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    drag.current = { id: e.pointerId, y: e.clientY, h: sheet.current.getBoundingClientRect().height, lastY: e.clientY, lastT: e.timeStamp, v: 0, moved: false }
   }
-  const onHandleUp = (e) => {
-    if (drag.current == null) return
-    const dy = e.clientY - drag.current
+  const onMove = (e) => {
+    const d = drag.current
+    if (!d || e.pointerId !== d.id) return
+    const dy = e.clientY - d.y
+    if (!d.moved) {
+      if (Math.abs(dy) < 6) return
+      d.moved = true
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      onDragChange?.(true)
+    }
+    const dt = e.timeStamp - d.lastT
+    if (dt > 0) d.v = 0.7 * ((e.clientY - d.lastY) / dt) + 0.3 * d.v // px/ms, positive = down
+    d.lastY = e.clientY
+    d.lastT = e.timeStamp
+    setDragH(Math.max(restH * 0.7, Math.min(maxH(), d.h - dy)))
+  }
+  const onUp = (e) => {
+    const d = drag.current
+    if (!d || e.pointerId !== d.id) return
     drag.current = null
-    if (dy < -24) setExpanded(true)
-    else if (dy > 24) setExpanded(false)
-    else setExpanded(!expanded)
+    if (!d.moved) return
+    swallowUntil.current = Date.now() + 400 // the drag mustn't also press the button it ended on
+    const h = d.h - (e.clientY - d.y)
+    const open = d.v < -0.4 ? true : d.v > 0.4 ? false : h > (restH + maxH()) / 2
+    setDragH(null)
+    onDragChange?.(false)
+    setExpanded(open)
   }
+  const onClickCapture = (e) => {
+    if (Date.now() > swallowUntil.current) return
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  const tabIndex = Math.max(0, TABS.findIndex(([id]) => id === tab))
+
   const openTab = (t) => {
     setTab(t)
     setExpanded(true)
@@ -166,40 +214,36 @@ export default function ConvoySheet({
 
   return (
     <section
+      ref={sheet}
       aria-label="Your convoy"
-      className="absolute inset-x-0 bottom-0 z-[1000] flex flex-col rounded-t-[28px] bg-white shadow-[0_-8px_30px_rgba(17,24,39,0.14)] transition-[height] duration-300 ease-out"
-      style={{ height: expanded ? 'calc(100% - 84px)' : detail ? DETAIL_HEIGHT : PEEK_HEIGHT }}
+      onClickCapture={onClickCapture}
+      className={`absolute inset-x-0 bottom-0 z-[1000] flex flex-col rounded-t-[28px] bg-white shadow-[0_-8px_30px_rgba(17,24,39,0.14)] ${
+        dragH == null ? 'transition-[height] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]' : ''
+      }`}
+      style={{ height: dragH ?? (expanded ? 'calc(100% - 84px)' : restH) }}
     >
-      <button
-        aria-label={expanded ? 'Collapse' : 'Expand'}
-        onPointerDown={onHandleDown}
-        onPointerUp={onHandleUp}
-        className="flex h-6 w-full shrink-0 items-center justify-center"
-        style={{ touchAction: 'none' }}
-      >
-        <span className="h-1.5 w-10 rounded-full bg-gray-300" />
-      </button>
-
-      {detail ? (
-        detail
-      ) : (
-        <>
+      {/* Drag zone: the handle, plus the summary row when no friend card is open. */}
+      <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} className="shrink-0" style={{ touchAction: 'none' }}>
+        <button aria-label={expanded ? 'Collapse' : 'Expand'} onClick={() => setExpanded(!expanded)} className="flex h-6 w-full items-center justify-center">
+          <span className={`h-1.5 rounded-full transition-all duration-200 ${dragH != null ? 'w-14 bg-gray-400' : 'w-10 bg-gray-300'}`} />
+        </button>
+        {!detail && (
           <div className="px-5 pb-3">
             <div className="flex items-center gap-2">
               <button onClick={onHealth} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 <HealthDot level={health.level} />
-                <span className="truncate text-[17px] font-extrabold tracking-tight" style={health.level === 'danger' ? { color: LEVEL.danger.text } : undefined}>
+                <span key={health.title} className="animate-fade-up truncate text-[17px] font-extrabold tracking-tight" style={health.level === 'danger' ? { color: LEVEL.danger.text } : undefined}>
                   {health.title}
                 </span>
               </button>
-              {!expanded && (
+              {!full && (
                 <button onClick={() => openTab('chat')} aria-label="Group chat" className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
                   <MessageCircle size={19} />
-                  {unreadChat > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{unreadChat}</span>}
+                  {unreadChat > 0 && <span key={unreadChat} className="animate-pop absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{unreadChat}</span>}
                 </button>
               )}
               {me && <MyStatusButton me={me} onClick={onOpenStatus} />}
-              {expanded && (
+              {full && (
                 <button onClick={() => setExpanded(false)} aria-label="Close panel" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
                   <ChevronDown size={22} />
                 </button>
@@ -210,14 +254,20 @@ export default function ConvoySheet({
               {health.line}
             </button>
           </div>
+        )}
+      </div>
 
-          {!expanded &&
+      {detail ? (
+        detail
+      ) : (
+        <>
+          {!full &&
             (friends.length ? (
               <div className="no-scrollbar flex gap-1 overflow-x-auto px-3 pb-3 pt-1">
-                {friends.map((f) => (
-                  <FriendChip key={f.id} friend={f} onClick={() => onSelectFriend(f.id)} />
+                {friends.map((f, i) => (
+                  <FriendChip key={f.id} friend={f} delay={i * 45} onClick={() => onSelectFriend(f.id)} />
                 ))}
-                <button onClick={onInvite} className="flex w-[76px] shrink-0 flex-col items-center gap-1.5 active:scale-95">
+                <button onClick={onInvite} className="animate-rise flex w-[76px] shrink-0 flex-col items-center gap-1.5 active:scale-95" style={{ animationDelay: `${friends.length * 45}ms` }}>
                   <span className="flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-dashed border-gray-300 text-ink-3">
                     <UserPlus size={22} />
                   </span>
@@ -225,42 +275,46 @@ export default function ConvoySheet({
                 </button>
               </div>
             ) : (
-              <div className="px-5">
+              <div className="animate-rise px-5">
                 <InviteCard code={code} onShare={onInvite} compact />
               </div>
             ))}
 
-          {expanded && (
+          {full && (
             <>
-              <div className="mx-5 mb-3 grid grid-cols-4 rounded-full bg-canvas p-1" role="tablist">
-                {[
-                  ['friends', 'Friends', 0],
-                  ['chat', 'Chat', tab === 'chat' ? 0 : unreadChat],
-                  ['alerts', 'Alerts', tab === 'alerts' ? 0 : unread],
-                  ['trip', 'Trip', 0],
-                ].map(([id, label, badge]) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={tab === id}
-                    onClick={() => openTab(id)}
-                    className={`relative h-10 rounded-full text-[13.5px] font-bold transition ${tab === id ? 'bg-white text-ink shadow-sm' : 'text-ink-3'}`}
-                  >
-                    {label}
-                    {badge > 0 && (
-                      <span className="absolute right-1 top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{badge}</span>
-                    )}
-                  </button>
-                ))}
+              <div className="relative mx-5 mb-3 grid shrink-0 grid-cols-4 rounded-full bg-canvas p-1" role="tablist">
+                {/* The highlight slides to the selected tab. */}
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-1 left-1 rounded-full bg-white shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+                  style={{ width: 'calc((100% - 8px) / 4)', transform: `translateX(${tabIndex * 100}%)` }}
+                />
+                {TABS.map(([id, label]) => {
+                  const badge = id === 'chat' && tab !== 'chat' ? unreadChat : id === 'alerts' && tab !== 'alerts' ? unread : 0
+                  return (
+                    <button
+                      key={id}
+                      role="tab"
+                      aria-selected={tab === id}
+                      onClick={() => openTab(id)}
+                      className={`relative z-10 h-10 rounded-full text-[13.5px] font-bold transition-colors duration-200 ${tab === id ? 'text-ink' : 'text-ink-3'}`}
+                    >
+                      {label}
+                      {badge > 0 && (
+                        <span key={badge} className="animate-pop absolute right-1 top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{badge}</span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
 
-              <div className={`no-scrollbar min-h-0 flex-1 px-5 pb-safe ${tab === 'chat' ? 'flex flex-col' : 'overflow-y-auto'}`}>
+              <div key={tab} className={`animate-fade-up no-scrollbar min-h-0 flex-1 px-5 pb-safe ${tab === 'chat' ? 'flex flex-col' : 'overflow-y-auto'}`}>
                 {tab === 'friends' && (
                   <>
                     {friends.length === 0 && <div className="py-6"><InviteCard code={code} onShare={onInvite} /></div>}
                     <ul className="flex flex-col">
-                      {friends.map((f) => (
-                        <li key={f.id}>
+                      {friends.map((f, i) => (
+                        <li key={f.id} className="animate-rise" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
                           <button onClick={() => onSelectFriend(f.id)} className={`flex w-full items-center gap-3.5 py-3 text-left active:bg-canvas ${f.state === 'offline' ? 'opacity-70' : ''}`}>
                             <Avatar member={f} size={46} />
                             <div className="min-w-0 flex-1">
@@ -291,8 +345,10 @@ export default function ConvoySheet({
                     {alerts.length === 0 && (
                       <div className="py-10 text-center text-[14px] font-semibold text-ink-3">No alerts yet. Stops, wrong turns, offline friends and SOS show up here.</div>
                     )}
-                    {alerts.map((a) => (
-                      <AlertRow key={a.id} alert={a} member={byId[a.memberId]} now={now} onAction={onAlertAction} />
+                    {alerts.map((a, i) => (
+                      <div key={a.id} className="animate-rise" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
+                        <AlertRow alert={a} member={byId[a.memberId]} now={now} onAction={onAlertAction} />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -340,6 +396,8 @@ export default function ConvoySheet({
                       <p className="mt-1 text-[13.5px] font-medium text-ink-2">{health.line}</p>
                       <ConvoyStrip members={members} />
                     </div>
+
+                    <WeatherCard here={me?.latlng} dest={trip.dest?.latlng} destName={trip.dest?.name} />
 
                     <InviteCard code={code} onShare={onInvite} />
 

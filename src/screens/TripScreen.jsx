@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
 import { KeepAwake } from '@capacitor-community/keep-awake'
-import { CircleCheck, Copy, Flag, LocateFixed, Menu, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
+import { CircleCheck, CloudRain, Copy, Eye, Flag, LocateFixed, Menu, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import MapView from '../components/MapView'
 import CheckInPrompt from '../components/CheckInPrompt'
@@ -12,11 +12,12 @@ import SearchView from '../components/SearchView'
 import StatusSheet from '../components/StatusSheet'
 import SOSScreen from '../components/SOSScreen'
 import TripMenu from '../components/TripMenu'
-import { Avatar, ConfirmDialog, ModalSheet, PrimaryButton, Toast } from '../components/ui'
+import { Avatar, ConfirmDialog, ModalSheet, PrimaryButton, ToastSlot } from '../components/ui'
 import { STATUS } from '../data/trip'
 import { googleMapsDirections, openExternal } from '../lib/external'
 import { formatDistance, formatKm, timeAgo } from '../lib/geo'
-import { inviteText, inviteUrl } from '../lib/invite'
+import { inviteText, inviteUrl, watchText } from '../lib/invite'
+import { rainy, weatherAt } from '../lib/weather'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
 import { useSettings } from '../lib/settings'
@@ -79,6 +80,7 @@ export default function TripScreen({ loc }) {
   const [inviteOpen, setInviteOpen] = useState(() => t.role === 'leader' && Date.now() - (t.trip?.createdAt || 0) < 15000)
   const [confirm, setConfirm] = useState(null) // { title, body, label, danger, run }
   const [searching, setSearching] = useState(false)
+  const [dragging, setDragging] = useState(false) // the convoy panel is under a finger
   const [pinMode, setPinMode] = useState(false)
   const [pinCenter, setPinCenter] = useState(null)
   const [pinName, setPinName] = useState('')
@@ -154,6 +156,32 @@ export default function TripScreen({ loc }) {
   // An SOS already has its own banner up top; don't repeat it as a toast.
   const toastShown = t.toast && !(t.toast.kind === 'sos' && emergencies.some((e) => e.id === t.toast.memberId))
   const toast = toastShown && { ...t.toast, member: t.toast.memberId ? t.members.find((m) => m.id === t.toast.memberId) : null }
+  const shareFamily = () => shareText(watchText(t.trip, t.code), t.notify, 'Live view link copied')
+
+  // Rain on the way: warn the convoy once per trip (checked now, then every 20 minutes).
+  const rainWarned = useRef(false)
+  const destKey = t.trip.dest?.latlng?.join()
+  useEffect(() => {
+    rainWarned.current = false
+    const dest = t.trip.dest
+    if (!dest?.latlng) return
+    let alive = true
+    const check = () =>
+      weatherAt(dest.latlng)
+        .then((w) => {
+          if (!alive || rainWarned.current || !(w.rain >= 60 || rainy(w))) return
+          rainWarned.current = true
+          t.addAlert({ level: 'info', kind: 'weather', Icon: CloudRain, title: `Rain likely at ${dest.name}`, body: `${w.rain}% chance in the next 3 hours. Pack rain gear.` }, { sound: false })
+        })
+        .catch(() => {})
+    check()
+    const id = setInterval(check, 20 * 60000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destKey])
   const showRegroup = () => {
     if (!t.trip.regroup) return
     setMode('free')
@@ -224,18 +252,16 @@ export default function TripScreen({ loc }) {
               )}
             </div>
           ))}
-        {toast && !pinMode && (
-          <Toast
-            toast={toast}
-            onClose={t.dismissToast}
-            onAction={() => {
-              t.dismissToast()
-              if (toast.regroup) showRegroup()
-              else if (toast.checkin) t.askCheckIn(toast.memberId)
-              else if (toast.memberId) focusFriend(toast.memberId)
-            }}
-          />
-        )}
+        <ToastSlot
+          toast={pinMode ? null : toast}
+          onClose={t.dismissToast}
+          onAction={(shown) => {
+            t.dismissToast()
+            if (shown.regroup) showRegroup()
+            else if (shown.checkin) t.askCheckIn(shown.memberId)
+            else if (shown.memberId) focusFriend(shown.memberId)
+          }}
+        />
         {!toast && !pinMode && !expanded && me?.speed >= 3 && (
           <div className="pointer-events-none flex h-12 w-12 flex-col items-center justify-center self-start rounded-full bg-white shadow-[0_4px_12px_rgba(17,24,39,0.16)]">
             <span className="text-[17px] font-extrabold leading-4 tabular-nums">{me.speed}</span>
@@ -244,9 +270,12 @@ export default function TripScreen({ loc }) {
         )}
       </div>
 
-      {/* Floating controls */}
+      {/* Floating controls (fade away while the panel is being dragged) */}
       {!expanded && !pinMode && (
-        <div className="absolute inset-x-3 z-[1050] flex items-end justify-between transition-[bottom] duration-300" style={{ bottom: sheetHeight + 14 }}>
+        <div
+          className={`absolute inset-x-3 z-[1050] flex items-end justify-between transition-[bottom,opacity] duration-300 ${dragging ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+          style={{ bottom: sheetHeight + 14 }}
+        >
           <button
             onClick={() => setSosOpen(true)}
             aria-label="SOS: open emergency assistance"
@@ -319,6 +348,7 @@ export default function TripScreen({ loc }) {
           onAlertAction={(a) => (a.regroup ? showRegroup() : a.checkin ? t.askCheckIn(a.memberId) : focusFriend(a.memberId))}
           onInvite={() => setInviteOpen(true)}
           onOptions={() => setMenuOpen(true)}
+          onDragChange={setDragging}
           detail={
             selected && !expanded ? (
               <FriendDetail
@@ -418,6 +448,10 @@ export default function TripScreen({ loc }) {
           setMenuOpen(false)
           setInviteOpen(true)
         }}
+        onFamily={() => {
+          setMenuOpen(false)
+          shareFamily()
+        }}
         onMusic={() => {
           setMenuOpen(false)
           setMusicOpen(true)
@@ -459,6 +493,16 @@ export default function TripScreen({ loc }) {
               <Copy size={18} /> Copy code
             </button>
           </div>
+          <button onClick={shareFamily} className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-canvas px-3.5 py-3 text-left active:scale-[0.99]">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-brand">
+              <Eye size={19} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14.5px] font-bold">Live view for family</span>
+              <span className="block truncate text-[12.5px] font-medium text-ink-3">A view-only link: they follow the ride, no app needed</span>
+            </span>
+            <Share2 size={17} className="shrink-0 text-ink-3" />
+          </button>
         </div>
       </ModalSheet>
 

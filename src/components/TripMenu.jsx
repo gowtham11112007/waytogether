@@ -1,5 +1,6 @@
-import { Flag, LogOut, MapPinned, Music2, Navigation2, Share2, Sun, Volume2, XCircle } from 'lucide-react'
+import { AudioLines, Eye, Flag, LogOut, MapPinned, Music2, Navigation2, Share2, Sun, Volume2, XCircle } from 'lucide-react'
 import { setSetting, useSettings } from '../lib/settings'
+import { speak, voiceAvailable } from '../lib/speech'
 import { ModalSheet, Toggle } from './ui'
 
 function Row({ icon, label, hint, onClick, danger }) {
@@ -14,7 +15,7 @@ function Row({ icon, label, hint, onClick, danger }) {
   )
 }
 
-export default function TripMenu({ open, onClose, role, trip, onChangeDest, onDropPin, onClearRegroup, onNavigate, onInvite, onMusic, onLeave, onEnd }) {
+export default function TripMenu({ open, onClose, role, trip, onChangeDest, onDropPin, onClearRegroup, onNavigate, onInvite, onFamily, onMusic, onLeave, onEnd }) {
   const settings = useSettings()
   const leader = role === 'leader'
   return (
@@ -27,6 +28,7 @@ export default function TripMenu({ open, onClose, role, trip, onChangeDest, onDr
           <Row icon={<Navigation2 size={19} />} label="Turn-by-turn in Google Maps" hint={`Directions to ${trip.regroup?.name || trip.dest?.name}`} onClick={onNavigate} />
           <Row icon={<Music2 size={19} />} label="Music" hint={trip.playlist ? 'Trip playlist shared' : 'Controls + trip playlist'} onClick={onMusic} />
           <Row icon={<Share2 size={19} />} label="Invite friends" hint="Share the code or QR" onClick={onInvite} />
+          {onFamily && <Row icon={<Eye size={19} />} label="Live view for family" hint="View-only link: they follow the ride, no app needed" onClick={onFamily} />}
         </div>
 
         <div className="mt-3 text-[12px] font-bold uppercase tracking-wide text-ink-3">Map</div>
@@ -50,6 +52,18 @@ export default function TripMenu({ open, onClose, role, trip, onChangeDest, onDr
         <div className="mt-2 divide-y divide-line">
           <Toggle icon={<Sun size={19} />} label="Keep screen on" hint="During trips, so the map stays visible" on={settings.keepAwake} onChange={(v) => setSetting('keepAwake', v)} />
           <Toggle icon={<Volume2 size={19} />} label="Alert sounds" hint="SOS siren, chimes for stops and messages" on={settings.sounds} onChange={(v) => setSetting('sounds', v)} />
+          {voiceAvailable() && (
+            <Toggle
+              icon={<AudioLines size={19} />}
+              label="Speak alerts"
+              hint="Reads out SOS, stops and messages, so you can keep your eyes on the road"
+              on={settings.voice}
+              onChange={(v) => {
+                setSetting('voice', v)
+                if (v) speak('Spoken alerts are on.')
+              }}
+            />
+          )}
         </div>
 
         <div className="mt-4 grid gap-2.5 pb-2">

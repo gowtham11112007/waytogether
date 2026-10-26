@@ -195,6 +195,89 @@ button {
 .animate-fade-up { animation: cv-fade-up 0.28s ease-out; }
 .animate-pop { animation: cv-pop 0.3s cubic-bezier(0.2, 1.4, 0.4, 1); }
 
+/* ---------- Motion ---------- */
+@keyframes cv-screen-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cv-toast-out {
+  to { transform: translateY(-14px) scale(0.97); opacity: 0; }
+}
+@keyframes cv-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes cv-sheet-out {
+  from { transform: none; }
+  to { transform: translateY(100%); }
+}
+@keyframes cv-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cv-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes cv-pop-out {
+  to { transform: scale(0.92); opacity: 0; }
+}
+@keyframes cv-rise {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes cv-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes cv-dash {
+  to { stroke-dashoffset: -44; }
+}
+@keyframes cv-draw {
+  from { stroke-dashoffset: var(--len, 1200); }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes cv-confetti {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  100% { transform: translate3d(var(--dx), 115vh, 0) rotate(var(--rot)); }
+}
+@keyframes cv-marker-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  70% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes cv-chip-cycle {
+  0%, 4% { opacity: 0; transform: translateY(8px) scale(0.96); }
+  9%, 42% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; transform: translateY(-6px) scale(0.98); }
+}
+.animate-screen-in { animation: cv-screen-in 0.36s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.animate-toast-out { animation: cv-toast-out 0.2s ease-in forwards; }
+.animate-sheet-in { animation: cv-sheet-in 0.36s cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-sheet-out { animation: cv-sheet-out 0.24s cubic-bezier(0.4, 0, 1, 1) forwards; }
+.animate-backdrop-in { animation: cv-fade-in 0.25s ease-out; }
+.animate-backdrop-out { animation: cv-fade-out 0.24s ease-in forwards; }
+.animate-pop-out { animation: cv-pop-out 0.18s ease-in forwards; }
+/* backwards: hidden during its delay, then back to the element's own styles (so dimmed items stay dimmed). */
+.animate-rise { animation: cv-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.animate-bob { animation: cv-bob 3.4s ease-in-out infinite; }
+.animate-dash { animation: cv-dash 1.4s linear infinite; }
+.animate-draw { stroke-dasharray: var(--len, 1200); animation: cv-draw 1.4s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both; }
+.animate-chip-cycle { animation: cv-chip-cycle 8s ease-in-out infinite both; }
+.confetti { position: absolute; top: -24px; animation: cv-confetti linear forwards; will-change: transform; }
+/* Friend markers pop in when they appear (and give a small bounce when their status changes). */
+.fm { animation: cv-marker-pop 0.42s cubic-bezier(0.2, 1.4, 0.4, 1); }
+
+/* People who turn animations off in their phone settings get a still app. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Full screen on phones; a phone-sized frame on desktop browsers. */
 .app-shell {
   height: 100%;

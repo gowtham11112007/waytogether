@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
 const KEY = 'convoya.settings'
-const DEFAULTS = { mapStyle: 'light', sounds: true, keepAwake: true }
+const DEFAULTS = { mapStyle: 'light', sounds: true, keepAwake: true, voice: false }
 let state = (() => {
   try {
     return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY)) }

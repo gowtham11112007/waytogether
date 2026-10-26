@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
 import { ArrowLeft, Bike, Car, ChevronRight, Clock, Flag, Gauge, Layers, Loader2, LocateFixed, MapPin, Navigation, RotateCw, Route as RouteIcon, ScanLine, Search, Timer, Users, X } from 'lucide-react'
 import MapView from '../components/MapView'
-import { Avatar, ModalSheet, PrimaryButton } from '../components/ui'
+import { Avatar, Confetti, ModalSheet, PrimaryButton, useCountUp } from '../components/ui'
+import { WeatherPill } from '../components/Weather'
 import QRScanner from '../components/QRScanner'
 import SearchView from '../components/SearchView'
 import { formatDuration, formatKm, haversine } from '../lib/geo'
@@ -65,6 +66,9 @@ function PlaceSheet({ place, route, routeState, canCreate, onCreate, onClose }) 
             <span className="text-ink-3">· {formatKm(route.distance)}</span>
           </>
         )}
+        <span className="ml-auto">
+          <WeatherPill latlng={place.latlng} />
+        </span>
         {routeState === 'error' && <span className="text-[13.5px] font-semibold text-amber-700">Couldn’t load a route. You can still start the trip.</span>}
         {routeState === 'nolocation' && <span className="text-[13.5px] font-semibold text-ink-3">Waiting for your location…</span>}
       </div>
@@ -217,9 +221,84 @@ function JoinSheet({ open, onClose, myLatLng, onJoin, initialCode }) {
   )
 }
 
-function tripDuration(h) {
-  const m = Math.max(1, Math.round((h.endedAt - h.startedAt) / 60000))
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`
+function greeting() {
+  const h = new Date().getHours()
+  return h < 5 ? 'Riding late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+}
+
+const minutesText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`)
+const tripMinutes = (h) => Math.max(1, Math.round((h.endedAt - h.startedAt) / 60000))
+const tripDuration = (h) => minutesText(tripMinutes(h))
+
+// A stat whose number counts up when it appears.
+function StatTile({ Icon, value, format, label, delay = 0 }) {
+  const v = useCountUp(value)
+  return (
+    <div className="animate-rise flex flex-col items-center gap-1 rounded-2xl bg-canvas py-3.5" style={{ animationDelay: `${delay}ms` }}>
+      <Icon size={18} className="text-brand" />
+      <span className="text-[17px] font-extrabold tabular-nums">{format(v)}</span>
+      <span className="text-[11.5px] font-semibold text-ink-3">{label}</span>
+    </div>
+  )
+}
+
+// Everything you've ridden with WayTogether on this phone.
+function RideStats({ history }) {
+  const total = history.reduce((s, h) => s + (h.distance || 0), 0)
+  const top = Math.max(0, ...history.map((h) => h.maxSpeed || 0))
+  return (
+    <div className="mt-3 grid grid-cols-3 gap-2">
+      <StatTile Icon={RouteIcon} value={total} format={formatKm} label="ridden" delay={80} />
+      <StatTile Icon={Flag} value={history.length} format={(v) => Math.round(v)} label={history.length === 1 ? 'trip' : 'trips'} delay={140} />
+      <StatTile Icon={Gauge} value={top} format={(v) => `${Math.round(v)} km/h`} label="top speed" delay={200} />
+    </div>
+  )
+}
+
+// Your ride, drawn from the breadcrumbs recorded during the trip (no map tiles needed).
+function RouteTrace({ track }) {
+  const W = 320
+  const H = 128
+  const P = 16
+  const geo = useMemo(() => {
+    if (!track || track.length < 2) return null
+    const kx = Math.cos((track[0][0] * Math.PI) / 180)
+    const xs = track.map((p) => p[1] * kx)
+    const ys = track.map((p) => -p[0])
+    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    const s = Math.min((W - 2 * P) / (maxX - minX || 1e-9), (H - 2 * P) / (maxY - minY || 1e-9))
+    const ox = (W - (maxX - minX) * s) / 2
+    const oy = (H - (maxY - minY) * s) / 2
+    const pts = xs.map((x, i) => [ox + (x - minX) * s, oy + (ys[i] - minY) * s])
+    let len = 0
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    return { d: pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' '), len: Math.ceil(len) + 2, start: pts[0], end: pts[pts.length - 1] }
+  }, [track])
+  if (!geo) return null
+  return (
+    <div className="animate-rise mt-3 overflow-hidden rounded-2xl border border-line bg-[#F5F8FD]" style={{ animationDelay: '120ms' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="block h-[128px] w-full" aria-label="Your route">
+        <defs>
+          <pattern id="trace-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M20 0H0V20" fill="none" stroke="#1A73E8" strokeOpacity="0.08" />
+          </pattern>
+        </defs>
+        <rect width={W} height={H} fill="url(#trace-grid)" />
+        <path d={geo.d} fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={geo.d} fill="none" stroke="#1A73E8" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" className="animate-draw" style={{ '--len': geo.len }} />
+        <circle cx={geo.start[0]} cy={geo.start[1]} r="5.5" fill="#fff" stroke="#16A34A" strokeWidth="3" />
+        <circle
+          cx={geo.end[0]}
+          cy={geo.end[1]}
+          r="7"
+          fill="#E5383B"
+          stroke="#fff"
+          strokeWidth="2.5"
+          style={{ transformBox: 'fill-box', transformOrigin: 'center', animation: 'cv-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) 1.5s both' }}
+        />
+      </svg>
+    </div>
+  )
 }
 
 export default function HomeScreen({ loc, profile, onEditProfile, invite, onInviteUsed }) {
@@ -255,9 +334,14 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
     setFocus({ type: 'point', latlng: myLatLng, zoom: 15.5, n: Date.now() })
   }, [myLatLng])
 
-  // A trip just finished: show its summary.
+  // A trip just finished: show its summary, with a little celebration.
+  const [celebrate, setCelebrate] = useState(false)
   useEffect(() => {
-    if (t.summary) setShownTrip(t.summary)
+    if (!t.summary) return
+    setShownTrip(t.summary)
+    setCelebrate(true)
+    const id = setTimeout(() => setCelebrate(false), 4000)
+    return () => clearTimeout(id)
   }, [t.summary])
 
   // Android back: close search / route preview / join first, then leave the app.
@@ -332,7 +416,7 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
           dest={view === 'place' ? place : null}
           focus={focus}
           mode="free"
-          padding={{ top: 90, bottom: view === 'place' ? 430 : 300 }}
+          padding={{ top: 90, bottom: view === 'place' ? 430 : history.length ? 390 : 300 }}
           styleKey={settings.mapStyle}
         />
       </div>
@@ -383,9 +467,11 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
               <LocateFixed size={22} />
             </button>
           </div>
-          <section className="pointer-events-auto rounded-t-[28px] bg-white px-5 pb-safe pt-2 shadow-[0_-8px_30px_rgba(17,24,39,0.14)]">
+          <section className="animate-sheet-in pointer-events-auto rounded-t-[28px] bg-white px-5 pb-safe pt-2 shadow-[0_-8px_30px_rgba(17,24,39,0.14)]">
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-300" />
-            <h2 className="text-[19px] font-extrabold tracking-tight">Ride together, {profile.name.split(' ')[0]}</h2>
+            <h2 className="text-[19px] font-extrabold tracking-tight">
+              {greeting()}, {profile.name.split(' ')[0]}
+            </h2>
             <p className="mt-0.5 text-[13.5px] font-medium text-ink-3">See your friends live on one map, all trip long.</p>
             <div className="mt-4 grid grid-cols-2 gap-2.5">
               <button onClick={() => setView('search')} className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-brand text-[15.5px] font-bold text-white shadow-[0_8px_20px_rgba(26,115,232,0.3)] active:scale-[0.98]">
@@ -395,8 +481,9 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
                 <Users size={19} /> Join trip
               </button>
             </div>
+            {history.length > 0 && <RideStats history={history} />}
             {history.length > 0 && (
-              <button onClick={() => setHistoryOpen(true)} className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-canvas px-3.5 py-3 text-left active:scale-[0.99]">
+              <button onClick={() => setHistoryOpen(true)} className="animate-rise mt-2 flex w-full items-center gap-3 rounded-2xl bg-canvas px-3.5 py-3 text-left active:scale-[0.99]" style={{ animationDelay: '260ms' }}>
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-ink-2"><RouteIcon size={17} /></span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-bold">Last trip: {history[0].to}</span>
@@ -451,19 +538,12 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
         {shownTrip && (
           <div className="pb-2">
             <div className="grid grid-cols-3 gap-2.5">
-              {[
-                [RouteIcon, formatKm(shownTrip.distance), 'you rode'],
-                [Timer, tripDuration(shownTrip), 'on the road'],
-                [Gauge, `${shownTrip.maxSpeed} km/h`, 'top speed'],
-              ].map(([Icon, v, k]) => (
-                <div key={k} className="flex flex-col items-center gap-1 rounded-2xl bg-canvas py-4">
-                  <Icon size={18} className="text-brand" />
-                  <span className="text-[17px] font-extrabold">{v}</span>
-                  <span className="text-[11.5px] font-semibold text-ink-3">{k}</span>
-                </div>
-              ))}
+              <StatTile Icon={RouteIcon} value={shownTrip.distance} format={formatKm} label="you rode" />
+              <StatTile Icon={Timer} value={tripMinutes(shownTrip)} format={(v) => minutesText(Math.round(v))} label="on the road" delay={60} />
+              <StatTile Icon={Gauge} value={shownTrip.maxSpeed} format={(v) => `${Math.round(v)} km/h`} label="top speed" delay={120} />
             </div>
-            <div className="mt-4 rounded-2xl border border-line p-4">
+            <RouteTrace track={shownTrip.track} />
+            <div className="animate-rise mt-3 rounded-2xl border border-line p-4" style={{ animationDelay: '180ms' }}>
               <div className="text-[13px] font-bold uppercase tracking-wide text-ink-3">Riders</div>
               <div className="mt-1 text-[15px] font-semibold">{shownTrip.riders.join(', ')}</div>
               <div className="mt-3 text-[13px] font-medium text-ink-3">
@@ -482,6 +562,8 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
           </div>
         )}
       </ModalSheet>
+
+      {celebrate && <Confetti />}
 
       {view === 'search' && (
         <SearchView

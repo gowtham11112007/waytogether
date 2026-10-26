@@ -14,6 +14,11 @@ Keep the Journey Together. A live map for groups travelling together. Everyone i
 - **Invite links**: the invite's Share button and QR code carry `https://<site>/?join=WAY-1234`. Opening it (or scanning the QR with any phone camera) opens WayTogether straight into "Join trip" with the code filled in, even after a detour through Google sign-in. Before handing out a new code, the app checks that nobody is already riding on it.
 - **Convoy Health**: "the group" is the biggest cluster of riders within 800 m of each other (ties go to the leader's cluster), so if *you* are the one behind, your phone says so instead of flagging everyone else. Friends who join from somewhere else show as *On the way* until they reach the route or the group, with no off-route or falling-behind alarms before that. Offline riders don't count towards the group. An SOS or unanswered check-in takes over the summary and pins a red banner with a one-tap **Go** (Google Maps directions) until the rider is safe.
 - **Leaving**: a rider who taps Leave is removed from everyone's map with a "left the trip" alert, rather than lingering as offline.
+- **Live view for family**: `https://<site>/?watch=WAY-1234` (Invite sheet or Trip options → *Live view for family*) opens a view-only map: riders, ETA, distance to go and SOS banners. No sign-in, no location of their own, and riders don't see watchers.
+- **Weather** (Open-Meteo, free, no key): conditions and the chance of rain where you are and at the destination (Trip tab and route preview), plus a one-time "Rain likely at …" alert.
+- **Spoken alerts** (Trip options → *Speak alerts*, where the phone has text-to-speech voices): reads out SOS, stops and chat messages.
+- **Trip summary**: stats count up, your ride is drawn from breadcrumbs recorded every ~30 m (GPS jumps left out), and a finished trip gets confetti. The home screen shows your totals.
+- **Motion**: animated welcome scene, a convoy panel you can drag with a finger, sliding tabs, sheets and toasts that animate in and out, markers that pop in. Phones set to *reduce motion* get a still app.
 - **Background**: a foreground location service keeps sharing with the screen off; realtime heartbeats run in a Web Worker so the connection survives; trip alerts (SOS, stops, chat) are posted by the app's own `TripAlerts` plugin so they arrive instantly even when the app is in the background.
 - **Android-only plugins in this repo**: `android/app/src/main/java/app/convoya/trip/MediaControlPlugin.java` (music keys) and `TripAlertsPlugin.java` (notifications), registered in `MainActivity.java`.
 
@@ -67,7 +72,10 @@ node scripts/generate_web_assets.mjs
 - `src/lib/realtime.js`: trip channels, presence + broadcast, auto-reconnect, trip lookup by code.
 - `src/lib/location.js`: GPS (foreground, background, mock) and battery.
 - `src/lib/places.js`: place search and routing (requests give up after a timeout instead of hanging on weak signal).
-- `src/lib/invite.js`: invite links and opening the app from one.
+- `src/lib/invite.js`: invite and live-view links, and opening the app from one.
+- `src/screens/WatchScreen.jsx`: the view-only family live view.
+- `src/lib/weather.js`, `src/components/Weather.jsx`: weather lookups and the weather chip/card.
+- `src/lib/speech.js`: spoken alerts.
 - `src/state/TripContext.jsx`: the trip engine. Covers riders, distances, the route match, Convoy Health, alerts (stops, off-route, falling behind, offline, low battery, SOS) and actions.
 - `src/screens/HomeScreen.jsx`: Google-Maps-style home, "Where to?" search, route preview, create trip, join by code or QR.
 - `src/screens/TripScreen.jsx`: the live trip map, friend cards, status, invite, SOS, regroup pin, change destination, end trip.

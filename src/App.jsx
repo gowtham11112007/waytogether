@@ -5,7 +5,8 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import { ModalSheet, PrimaryButton } from './components/ui'
 import { useBattery, useMyLocation } from './lib/location'
 import { currentGoogleProfile, signOut } from './lib/auth'
-import { clearInvite, pendingInvite } from './lib/invite'
+import { clearInvite, pendingInvite, watchCodeFromUrl } from './lib/invite'
+import WatchScreen from './screens/WatchScreen'
 import { loadActiveTrip, loadProfile, saveActiveTrip, saveProfile } from './lib/profile'
 import HomeScreen from './screens/HomeScreen'
 import Setup from './screens/Setup'
@@ -44,12 +45,20 @@ function Screens({ loc, profile, onEditProfile, invite, onInviteUsed }) {
     if (invite !== t.code) t.notify({ level: 'info', title: 'You’re already in a trip', body: `Leave it first to join ${invite}.` })
     onInviteUsed()
   }, [t.active, t.code, invite, onInviteUsed, t.notify])
+  // Keyed wrappers: switching between home and a trip plays a short fade-in.
   return t.active ? (
-    <TripScreen loc={loc} />
+    <div key="trip" className="animate-screen-in h-full w-full">
+      <TripScreen loc={loc} />
+    </div>
   ) : (
-    <HomeScreen loc={loc} profile={profile} onEditProfile={onEditProfile} invite={invite} onInviteUsed={onInviteUsed} />
+    <div key="home" className="animate-screen-in h-full w-full">
+      <HomeScreen loc={loc} profile={profile} onEditProfile={onEditProfile} invite={invite} onInviteUsed={onInviteUsed} />
+    </div>
   )
 }
+
+// A view-only live link (?watch=WAY-1234) for family: no sign-in, no location of their own.
+const watchCode = watchCodeFromUrl()
 
 export default function App() {
   const [profile, setProfile] = useState(loadProfile)
@@ -61,7 +70,7 @@ export default function App() {
     setInvite(null)
   }, [])
   // During a trip on Android, location keeps flowing with the screen off (foreground service).
-  const loc = useMyLocation({ background: inTrip, enabled: !!profile })
+  const loc = useMyLocation({ background: inTrip, enabled: !!profile && !watchCode })
   const battery = useBattery()
   const inTripRef = useRef(inTrip)
   inTripRef.current = inTrip
@@ -88,6 +97,16 @@ export default function App() {
       sub.then((h) => h.remove())
     }
   }, [])
+
+  if (watchCode) {
+    return (
+      <div className="app-shell">
+        <div className="app-frame">
+          <WatchScreen code={watchCode} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="app-shell">
