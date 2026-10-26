@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { LEVEL, STATUS } from '../data/trip'
 import { avatarFor } from '../lib/avatar'
@@ -44,8 +45,19 @@ export function RoleTag({ role }) {
   return null
 }
 
+// Escape closes the top layer (keyboards on the web version; Android uses its back button).
+export function useEscape(active, onEscape) {
+  useEffect(() => {
+    if (!active) return
+    const onKey = (e) => e.key === 'Escape' && onEscape?.()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, onEscape])
+}
+
 // Modal bottom sheet with a dimmed backdrop.
 export function ModalSheet({ open, onClose, title, subtitle, children, tone = 'light' }) {
+  useEscape(open, onClose)
   if (!open) return null
   return (
     <div className="absolute inset-0 z-[1200] flex flex-col justify-end">
@@ -139,6 +151,7 @@ export function Logo({ size = 36 }) {
 }
 
 export function ConfirmDialog({ open, title, body, confirmLabel, danger, onConfirm, onCancel }) {
+  useEscape(open, onCancel)
   if (!open) return null
   return (
     <div className="absolute inset-0 z-[1800] flex items-center justify-center bg-black/45 p-6" role="alertdialog" aria-modal="true" aria-label={title}>

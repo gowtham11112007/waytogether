@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, MessageCircle, Settings2, Share2, UserPlus, 
 import { QRCodeSVG } from 'qrcode.react'
 import { LEVEL, STATUS } from '../data/trip'
 import { formatDistance, formatKm, timeAgo } from '../lib/geo'
+import { inviteUrl } from '../lib/invite'
 import ChatPanel from './ChatPanel'
 import { Avatar, RoleTag, StatusText } from './ui'
 
@@ -11,7 +12,7 @@ export const DETAIL_HEIGHT = 300
 
 function HealthDot({ level }) {
   const lv = LEVEL[level] || LEVEL.info
-  return <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: lv.color, boxShadow: `0 0 0 4px ${lv.soft}` }} />
+  return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${level === 'danger' ? 'animate-live' : ''}`} style={{ background: lv.color, boxShadow: `0 0 0 4px ${lv.soft}` }} />
 }
 
 function MyStatusButton({ me, onClick }) {
@@ -81,7 +82,16 @@ function AlertRow({ alert, member, now, onAction }) {
   return (
     <div className="rounded-2xl border p-3.5" style={{ borderColor: alert.level === 'danger' ? '#FCA5A5' : '#E5E7EB', background: alert.level === 'danger' ? '#FEF2F2' : '#fff' }}>
       <div className="flex gap-3">
-        {member ? <Avatar member={member} size={40} /> : <span className="h-10 w-10 shrink-0 rounded-full" style={{ background: lv.soft }} />}
+        {member ? (
+          <Avatar member={member} size={40} />
+        ) : alert.memberId ? (
+          // They've left the trip since: same generated face, no live status ring.
+          <Avatar member={{ id: alert.memberId }} size={40} ring={false} badge={false} />
+        ) : (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full" style={{ background: lv.soft, color: lv.color }}>
+            {alert.Icon && <alert.Icon size={19} strokeWidth={2.4} />}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <span className="text-[14.5px] font-bold leading-5">{alert.title}</span>
@@ -107,7 +117,7 @@ export function InviteCard({ code, onShare, compact }) {
   return (
     <div className={`flex items-center gap-4 rounded-3xl border border-line ${compact ? 'p-3' : 'p-4'}`}>
       <div className="rounded-xl bg-white p-1 ring-1 ring-line">
-        <QRCodeSVG value={`WayTogether trip code: ${code}`} size={compact ? 72 : 88} level="M" />
+        <QRCodeSVG value={inviteUrl(code)} size={compact ? 72 : 88} level="M" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[12px] font-bold uppercase tracking-wide text-ink-3">Trip code</div>
@@ -151,6 +161,8 @@ export default function ConvoySheet({
     if (t === 'chat') markChatSeen()
   }
   const etaText = progress ? new Date(progress.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null
+  // Tapping the convoy summary jumps to whoever needs help, otherwise to the trip overview.
+  const onHealth = () => (health.memberId ? onSelectFriend(health.memberId) : openTab('trip'))
 
   return (
     <section
@@ -172,26 +184,31 @@ export default function ConvoySheet({
         detail
       ) : (
         <>
-          <div className="flex items-center justify-between gap-2 px-5 pb-3">
-            <button onClick={() => openTab('trip')} className="min-w-0 flex-1 text-left">
-              <div className="flex items-center gap-2">
+          <div className="px-5 pb-3">
+            <div className="flex items-center gap-2">
+              <button onClick={onHealth} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 <HealthDot level={health.level} />
-                <span className="truncate text-[17px] font-extrabold tracking-tight">{health.title}</span>
-              </div>
-              <div className="mt-0.5 truncate pl-[18px] text-[13px] font-medium text-ink-3">{health.line}</div>
+                <span className="truncate text-[17px] font-extrabold tracking-tight" style={health.level === 'danger' ? { color: LEVEL.danger.text } : undefined}>
+                  {health.title}
+                </span>
+              </button>
+              {!expanded && (
+                <button onClick={() => openTab('chat')} aria-label="Group chat" className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
+                  <MessageCircle size={19} />
+                  {unreadChat > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{unreadChat}</span>}
+                </button>
+              )}
+              {me && <MyStatusButton me={me} onClick={onOpenStatus} />}
+              {expanded && (
+                <button onClick={() => setExpanded(false)} aria-label="Close panel" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
+                  <ChevronDown size={22} />
+                </button>
+              )}
+            </div>
+            {/* Full width, so the line isn't cut short by the buttons. */}
+            <button onClick={onHealth} className="-mt-0.5 block w-full truncate pl-[18px] text-left text-[13px] font-medium text-ink-3">
+              {health.line}
             </button>
-            {!expanded && (
-              <button onClick={() => openTab('chat')} aria-label="Group chat" className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
-                <MessageCircle size={19} />
-                {unreadChat > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-extrabold text-white">{unreadChat}</span>}
-              </button>
-            )}
-            {me && <MyStatusButton me={me} onClick={onOpenStatus} />}
-            {expanded && (
-              <button onClick={() => setExpanded(false)} aria-label="Close panel" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
-                <ChevronDown size={22} />
-              </button>
-            )}
           </div>
 
           {!expanded &&

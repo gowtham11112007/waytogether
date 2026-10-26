@@ -154,9 +154,9 @@ export default function MapView({
       }
     })
     map.on('style.load', () => {
-      // Calm map: hide shop/POI clutter and one-way arrows.
+      // Calm map: hide shop/POI clutter and one-way arrows ("road_one_way…" in Default, "road_oneway…" in Night).
       for (const l of map.getStyle().layers || []) {
-        if (/poi|one_way|building-3d/.test(l.id)) map.setLayoutProperty(l.id, 'visibility', 'none')
+        if (/poi|one_?way|building-3d/.test(l.id)) map.setLayoutProperty(l.id, 'visibility', 'none')
       }
       map.addSource('accuracy', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'accuracy-fill', type: 'fill', source: 'accuracy', paint: { 'fill-color': '#1A73E8', 'fill-opacity': 0.1 } })
@@ -197,7 +197,8 @@ export default function MapView({
     if (!map || styleRef.current === styleKey) return
     styleRef.current = styleKey
     ready.current = false
-    map.setStyle(MAP_STYLES[styleKey] || MAP_STYLES.light)
+    // A full rebuild (not a diff) so 'style.load' always fires and our route layers get added back.
+    map.setStyle(MAP_STYLES[styleKey] || MAP_STYLES.light, { diff: false })
   }, [styleKey])
 
   // ---- route + accuracy (GeoJSON layers) ----
@@ -315,7 +316,7 @@ export default function MapView({
     map.setPadding({ top: padTop, bottom: padBottom, left: 0, right: 0 })
   }, [padTop, padBottom])
 
-  const MARGIN = { top: 28, bottom: 28, left: 44, right: 44 }
+  const MARGIN = { top: 28, bottom: 28, left: 44, right: 72 } // the right edge has the round map buttons
 
   // ---- one-shot camera moves ----
   useEffect(() => {

@@ -7,11 +7,13 @@ const QUICK = ['On my way', 'Slow down', 'Wait for me', 'Stopping soon', 'All go
 export default function ChatPanel({ messages, meId, onSend, onSeen }) {
   const [text, setText] = useState('')
   const end = useRef(null)
+  // Keyed on the newest message, not the count: the history is capped, so its length stops changing.
+  const lastId = messages[messages.length - 1]?.id
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' })
     onSeen?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length])
+  }, [lastId])
 
   const send = (t) => {
     if (!t.trim()) return

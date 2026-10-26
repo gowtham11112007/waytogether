@@ -4,6 +4,16 @@ import { buildRoute } from './geo'
 const PHOTON = 'https://photon.komoot.io'
 const OSRM = 'https://router.project-osrm.org'
 
+// Weak mobile data can leave a request hanging forever: give up after `ms` (or when `outer` aborts).
+function timeout(ms, outer) {
+  const ctl = new AbortController()
+  const id = setTimeout(() => ctl.abort(new DOMException('Request timed out', 'TimeoutError')), ms)
+  if (outer?.aborted) ctl.abort(outer.reason)
+  else outer?.addEventListener('abort', () => ctl.abort(outer.reason), { once: true })
+  ctl.signal.addEventListener('abort', () => clearTimeout(id), { once: true })
+  return ctl.signal
+}
+
 function label(p) {
   const name = p.name || [p.housenumber, p.street].filter(Boolean).join(' ') || p.city || p.county || 'Dropped pin'
   const area = [p.name && p.street && p.street !== p.name ? p.street : null, p.district, p.city !== p.name ? p.city : null, p.state, p.country]
@@ -22,7 +32,7 @@ export async function searchPlaces(query, near, signal) {
     u.searchParams.set('lat', String(near[0]))
     u.searchParams.set('lon', String(near[1]))
   }
-  const res = await fetch(u, { signal })
+  const res = await fetch(u, { signal: timeout(10000, signal) })
   if (!res.ok) throw new Error('Search failed')
   const data = await res.json()
   return data.features.map((f) => {
@@ -38,7 +48,7 @@ export async function searchPlaces(query, near, signal) {
 
 export async function placeName(latlng, signal) {
   try {
-    const res = await fetch(`${PHOTON}/reverse?lat=${latlng[0]}&lon=${latlng[1]}&limit=1`, { signal })
+    const res = await fetch(`${PHOTON}/reverse?lat=${latlng[0]}&lon=${latlng[1]}&limit=1`, { signal: timeout(5000, signal) })
     const data = await res.json()
     const p = data.features?.[0]?.properties
     if (!p) return 'Your location'
@@ -56,10 +66,10 @@ export async function getRoute(from, to) {
   const url = `${OSRM}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson`
   let res
   try {
-    res = await fetch(url)
+    res = await fetch(url, { signal: timeout(15000) })
   } catch {
     await new Promise((r) => setTimeout(r, 1500))
-    res = await fetch(url) // one quick retry for flaky mobile data
+    res = await fetch(url, { signal: timeout(15000) }) // one quick retry for flaky mobile data
   }
   if (!res.ok) throw new Error('No route found')
   const data = await res.json()

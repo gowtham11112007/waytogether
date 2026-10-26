@@ -114,7 +114,7 @@ export default function SOSScreen({ me, tripName, friends, active, onSend, onCan
             <Phone size={20} /> Call Emergency Services · 112
           </a>
           <div className="grid grid-cols-2 gap-3">
-            <button onClick={onShare} className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-white/15 text-[15px] font-bold">
+            <button onClick={onShare} disabled={!me.latlng} className="flex h-13 items-center justify-center gap-2 rounded-2xl bg-white/15 text-[15px] font-bold disabled:opacity-50">
               <Share2 size={18} /> Share Location
             </button>
             <button onClick={onCancel} className="h-13 rounded-2xl border border-white/40 text-[15px] font-bold">

@@ -12,10 +12,11 @@ import SearchView from '../components/SearchView'
 import StatusSheet from '../components/StatusSheet'
 import SOSScreen from '../components/SOSScreen'
 import TripMenu from '../components/TripMenu'
-import { ConfirmDialog, ModalSheet, PrimaryButton, Toast } from '../components/ui'
+import { Avatar, ConfirmDialog, ModalSheet, PrimaryButton, Toast } from '../components/ui'
 import { STATUS } from '../data/trip'
 import { googleMapsDirections, openExternal } from '../lib/external'
-import { formatKm } from '../lib/geo'
+import { formatDistance, formatKm, timeAgo } from '../lib/geo'
+import { inviteText, inviteUrl } from '../lib/invite'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
 import { useSettings } from '../lib/settings'
@@ -85,8 +86,13 @@ export default function TripScreen({ loc }) {
   const me = t.me
   const sosActive = me?.status === 'sos'
   const selected = t.members.find((m) => m.id === selectedId)
-  const inviteText = `Join my trip "${t.trip.name}" on WayTogether.\nTrip code: ${t.code}\nOpen WayTogether → Join trip → enter the code.`
+  const emergencies = t.friends.filter((f) => f.state === 'sos' || f.state === 'noreply')
   const sheetHeight = pinMode ? 190 : expanded ? 0 : selected ? DETAIL_HEIGHT : PEEK_HEIGHT
+  // Keep riders clear of the SOS button and map controls that float above the sheet,
+  // and of the emergency banners under the header.
+  const controlsShown = !expanded && !pinMode
+  const mapBottom = sheetHeight + (controlsShown ? 84 : 16)
+  const mapTop = 96 + (pinMode ? 0 : Math.min(emergencies.length, 2) * 72)
 
   // Keep the screen on during the trip (setting).
   useEffect(() => {
@@ -145,7 +151,9 @@ export default function TripScreen({ loc }) {
     setConfirm(c)
   }
 
-  const toast = t.toast && { ...t.toast, member: t.toast.memberId ? t.members.find((m) => m.id === t.toast.memberId) : null }
+  // An SOS already has its own banner up top; don't repeat it as a toast.
+  const toastShown = t.toast && !(t.toast.kind === 'sos' && emergencies.some((e) => e.id === t.toast.memberId))
+  const toast = toastShown && { ...t.toast, member: t.toast.memberId ? t.members.find((m) => m.id === t.toast.memberId) : null }
   const showRegroup = () => {
     if (!t.trip.regroup) return
     setMode('free')
@@ -168,13 +176,13 @@ export default function TripScreen({ loc }) {
           mode={pinMode ? 'free' : mode}
           onUserMove={() => setMode('free')}
           onCenterChange={pinMode ? setPinCenter : undefined}
-          padding={{ top: 96, bottom: sheetHeight + 16 }}
+          padding={{ top: mapTop, bottom: mapBottom }}
           styleKey={settings.mapStyle}
         />
       </div>
 
-      {/* Header: options · destination · connection */}
-      <div className="pointer-events-none absolute inset-x-3 top-0 z-[1100] flex flex-col gap-2 pt-safe">
+      {/* Header: options · destination · connection. Lifted above open sheets while a friend needs help. */}
+      <div className={`pointer-events-none absolute inset-x-3 top-0 flex flex-col gap-2 pt-safe ${emergencies.length ? 'z-[1250]' : 'z-[1100]'}`}>
         <div className="pointer-events-auto flex h-14 items-center gap-2 rounded-full bg-white pl-1.5 pr-4 shadow-[0_4px_16px_rgba(17,24,39,0.16)]">
           <button onClick={() => setMenuOpen(true)} aria-label="Trip options" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-2 active:bg-canvas">
             <Menu size={22} />
@@ -195,6 +203,27 @@ export default function TripScreen({ loc }) {
             <button onClick={loc.retry} className="ml-2 font-bold text-brand underline">Try again</button>
           </div>
         )}
+        {/* A friend in trouble stays pinned here until they're safe. */}
+        {!pinMode &&
+          emergencies.slice(0, 2).map((f) => (
+            <div key={f.id} role="alert" className="animate-slide-down pointer-events-auto flex items-center gap-3 rounded-2xl bg-[#B3121F] p-3 pr-2 text-white shadow-[0_10px_30px_rgba(179,18,31,0.4)]">
+              <span className="relative flex shrink-0">
+                <span className="absolute inset-0 animate-ping rounded-full bg-white/40" />
+                <Avatar member={f} size={40} ring={false} badge={false} />
+              </span>
+              <button onClick={() => focusFriend(f.id)} className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-[14.5px] font-extrabold leading-5">{f.state === 'sos' ? `${f.name} needs help` : `${f.name} isn’t responding`}</span>
+                <span className="block truncate text-[12.5px] font-semibold text-white/80">
+                  {f.fromMe == null ? 'Last known spot on the map' : f.fromMe < 50 ? 'Right next to you' : `${formatDistance(f.fromMe)} away`} · {timeAgo(t.now - f.updatedAt)}
+                </span>
+              </button>
+              {f.latlng && (
+                <button onClick={() => openExternal(googleMapsDirections(f.latlng))} className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13.5px] font-extrabold text-[#B3121F] active:scale-95">
+                  <Navigation2 size={16} fill="currentColor" /> Go
+                </button>
+              )}
+            </div>
+          ))}
         {toast && !pinMode && (
           <Toast
             toast={toast}
@@ -415,14 +444,15 @@ export default function TripScreen({ loc }) {
 
       <MusicSheet open={musicOpen} onClose={() => setMusicOpen(false)} playlist={t.trip.playlist} onSetPlaylist={(url) => t.updateTrip({ playlist: url })} />
 
-      <ModalSheet open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite your convoy" subtitle="Friends open WayTogether → Join trip, then scan or type this code.">
+      <ModalSheet open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite your convoy" subtitle="Send the invite link, or let friends scan or type this code.">
         <div className="flex flex-col items-center pb-2">
           <div className="font-mono text-[40px] font-bold tracking-wider">{t.code}</div>
           <div className="mt-3 rounded-2xl bg-white p-2 ring-1 ring-line">
-            <QRCodeSVG value={`WayTogether trip code: ${t.code}`} size={180} level="M" />
+            <QRCodeSVG value={inviteUrl(t.code)} size={180} level="M" />
           </div>
-          <div className="mt-5 grid w-full grid-cols-2 gap-2.5">
-            <PrimaryButton onClick={() => shareText(inviteText, t.notify, 'Invite copied')}>
+          <p className="mt-2 text-center text-[12.5px] font-medium text-ink-3">Scanning with any phone camera opens the trip.</p>
+          <div className="mt-4 grid w-full grid-cols-2 gap-2.5">
+            <PrimaryButton onClick={() => shareText(inviteText(t.trip, t.code), t.notify, 'Invite link copied')}>
               <Share2 size={18} /> Share
             </PrimaryButton>
             <button onClick={() => shareText(t.code, t.notify, 'Code copied')} className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-line text-[16px] font-bold">

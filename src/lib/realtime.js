@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { newTripCode } from './profile'
 
 // Live sharing runs on Supabase Realtime: each trip is a channel named after its code.
 // Presence says who is in the trip (and carries the trip details for joiners); broadcast carries
@@ -159,6 +160,7 @@ function localChannel(code, myId, { onSync, onEvent, onStatus }) {
   const bc = new BroadcastChannel('convoya-local')
   const peers = {}
   let mine = null
+  let left = false
   const emit = () => {
     const all = {}
     for (const [k, v] of Object.entries(peers)) all[k] = v.payload
@@ -199,8 +201,10 @@ function localChannel(code, myId, { onSync, onEvent, onStatus }) {
       announce()
       emit()
     },
-    send: (event) => bc.postMessage({ t: 'evt', code, payload: event }),
+    send: (event) => !left && bc.postMessage({ t: 'evt', code, payload: event }),
     leave: () => {
+      if (left) return // a closed BroadcastChannel throws on postMessage
+      left = true
       clearInterval(beat)
       if (myId) bc.postMessage({ t: 'leave', code, key: myId })
       bc.close()
@@ -214,16 +218,27 @@ export function joinChannel(code, myId, handlers) {
 
 // Look up a trip by code without joining it: anyone currently sharing carries the trip details.
 // Concurrent lookups of the same code share one request (they'd otherwise share one channel anyway).
+// `quick`: answer "nobody there" as soon as the first (empty) member list arrives instead of waiting.
 const lookups = new Map()
-export function lookupTrip(code, timeout = 7000) {
-  if (!lookups.has(code)) {
-    const p = lookupOnce(code, timeout).finally(() => setTimeout(() => lookups.delete(code), 1500))
-    lookups.set(code, p)
+export function lookupTrip(code, timeout = 7000, { quick = false } = {}) {
+  const key = `${code}|${quick}`
+  if (!lookups.has(key)) {
+    const p = lookupOnce(code, timeout, quick).finally(() => setTimeout(() => lookups.delete(key), 1500))
+    lookups.set(key, p)
   }
-  return lookups.get(code)
+  return lookups.get(key)
 }
 
-function lookupOnce(code, timeout) {
+// Trip codes are short (WAY-1234), so check nobody is riding on one before handing it out.
+export async function freeTripCode() {
+  for (let i = 0; i < 3; i++) {
+    const code = newTripCode()
+    if (!(await lookupTrip(code, 2500, { quick: true }))) return code
+  }
+  return newTripCode()
+}
+
+function lookupOnce(code, timeout, quick) {
   return new Promise((resolve) => {
     let done = false
     let ch = null
@@ -247,7 +262,7 @@ function lookupOnce(code, timeout) {
         if (riders.length) {
           const leader = riders.find((p) => p.role === 'leader') || riders[0]
           finish({ trip: leader.trip, riders })
-        }
+        } else if (quick) finish(null)
       },
     })
   })

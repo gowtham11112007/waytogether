@@ -11,3 +11,5 @@ android/local.properties
 .vercel
 .env*
 !.env.example
+# macOS folder icon file
+Icon?

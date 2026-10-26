@@ -1,12 +1,10 @@
 import { Battery, BatteryLow, Loader2, MessageCircle, Navigation2, ShieldQuestion, X } from 'lucide-react'
 import { ROLE_LABEL } from '../data/trip'
+import { googleMapsDirections, openExternal } from '../lib/external'
 import { formatDistance, timeAgo } from '../lib/geo'
 import { Avatar, StatusText } from './ui'
 
 export default function FriendDetail({ friend, now, onClose, onPing, onCheckIn }) {
-  const navUrl = friend.latlng
-    ? `https://www.google.com/maps/dir/?api=1&destination=${friend.latlng[0].toFixed(6)},${friend.latlng[1].toFixed(6)}&travelmode=driving`
-    : null
   const lowBattery = friend.battery != null && friend.battery < 15
   return (
     <div className="animate-fade-up px-5">
@@ -48,15 +46,13 @@ export default function FriendDetail({ friend, now, onClose, onPing, onCheckIn }
       </div>
 
       <div className="mt-4 grid grid-cols-[1fr_1fr] gap-2.5">
-        <a
-          href={navUrl || undefined}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!navUrl}
-          className={`flex items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-[15px] font-bold text-white active:scale-[0.98] ${navUrl ? '' : 'pointer-events-none opacity-40'}`}
+        <button
+          onClick={() => friend.latlng && openExternal(googleMapsDirections(friend.latlng))}
+          disabled={!friend.latlng}
+          className="flex items-center justify-center gap-2 rounded-full bg-brand py-3.5 text-[15px] font-bold text-white active:scale-[0.98] disabled:opacity-40"
         >
           <Navigation2 size={18} fill="currentColor" /> Navigate
-        </a>
+        </button>
         {friend.checkin ? (
           <span className="flex items-center justify-center gap-2 rounded-full bg-amber-50 py-3.5 text-[14px] font-bold text-amber-700">
             <Loader2 size={17} className="animate-spin" /> Waiting for reply

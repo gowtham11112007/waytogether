@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as NativeApp } from '@capacitor/app'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { ModalSheet, PrimaryButton } from './components/ui'
 import { useBattery, useMyLocation } from './lib/location'
 import { currentGoogleProfile, signOut } from './lib/auth'
+import { clearInvite, pendingInvite } from './lib/invite'
 import { loadActiveTrip, loadProfile, saveActiveTrip, saveProfile } from './lib/profile'
 import HomeScreen from './screens/HomeScreen'
 import Setup from './screens/Setup'
@@ -35,15 +36,30 @@ function ProfileSheet({ open, profile, onClose, onSave, onSignOut }) {
   )
 }
 
-function Screens({ loc, profile, onEditProfile }) {
+function Screens({ loc, profile, onEditProfile, invite, onInviteUsed }) {
   const t = useTrip()
-  return t.active ? <TripScreen loc={loc} /> : <HomeScreen loc={loc} profile={profile} onEditProfile={onEditProfile} />
+  // Opened an invite link while already riding: stay in the current trip.
+  useEffect(() => {
+    if (!t.active || !invite) return
+    if (invite !== t.code) t.notify({ level: 'info', title: 'You’re already in a trip', body: `Leave it first to join ${invite}.` })
+    onInviteUsed()
+  }, [t.active, t.code, invite, onInviteUsed, t.notify])
+  return t.active ? (
+    <TripScreen loc={loc} />
+  ) : (
+    <HomeScreen loc={loc} profile={profile} onEditProfile={onEditProfile} invite={invite} onInviteUsed={onInviteUsed} />
+  )
 }
 
 export default function App() {
   const [profile, setProfile] = useState(loadProfile)
   const [inTrip, setInTrip] = useState(() => !!loadActiveTrip())
   const [editing, setEditing] = useState(false)
+  const [invite, setInvite] = useState(pendingInvite) // trip code from an invite link
+  const inviteUsed = useCallback(() => {
+    clearInvite()
+    setInvite(null)
+  }, [])
   // During a trip on Android, location keeps flowing with the screen off (foreground service).
   const loc = useMyLocation({ background: inTrip, enabled: !!profile })
   const battery = useBattery()
@@ -81,7 +97,7 @@ export default function App() {
           <Setup onDone={(p) => setProfile(saveProfile(p))} />
         ) : (
           <TripProvider profile={profile} fix={loc.fix} battery={battery} onActiveChange={setInTrip}>
-            <Screens loc={loc} profile={profile} onEditProfile={() => setEditing(true)} />
+            <Screens loc={loc} profile={profile} onEditProfile={() => setEditing(true)} invite={invite} onInviteUsed={inviteUsed} />
             <ProfileSheet
               open={editing}
               profile={profile}

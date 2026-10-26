@@ -11,6 +11,9 @@ Keep the Journey Together. A live map for groups travelling together. Everyone i
 - **Search and routes** use Photon (OpenStreetMap search) and OSRM routing. Both are free and need no key.
 - **The map** is MapLibre GL (GPU-rendered, smooth like Google Maps) with OpenFreeMap vector tiles and Esri satellite imagery (free, no key). Light / Night / Satellite styles; 3D heading-up navigation view.
 - **Trip features**: change destination mid-trip (leader), regroup pin anyone can drop, group chat with quick messages, music controls (media keys for Spotify or any player) + shared Spotify playlist, trip stats and history, Convoy Health, SOS with siren.
+- **Invite links**: the invite's Share button and QR code carry `https://<site>/?join=WAY-1234`. Opening it (or scanning the QR with any phone camera) opens WayTogether straight into "Join trip" with the code filled in, even after a detour through Google sign-in. Before handing out a new code, the app checks that nobody is already riding on it.
+- **Convoy Health**: "the group" is the biggest cluster of riders within 800 m of each other (ties go to the leader's cluster), so if *you* are the one behind, your phone says so instead of flagging everyone else. Friends who join from somewhere else show as *On the way* until they reach the route or the group, with no off-route or falling-behind alarms before that. Offline riders don't count towards the group. An SOS or unanswered check-in takes over the summary and pins a red banner with a one-tap **Go** (Google Maps directions) until the rider is safe.
+- **Leaving**: a rider who taps Leave is removed from everyone's map with a "left the trip" alert, rather than lingering as offline.
 - **Background**: a foreground location service keeps sharing with the screen off; realtime heartbeats run in a Web Worker so the connection survives; trip alerts (SOS, stops, chat) are posted by the app's own `TripAlerts` plugin so they arrive instantly even when the app is in the background.
 - **Android-only plugins in this repo**: `android/app/src/main/java/app/convoya/trip/MediaControlPlugin.java` (music keys) and `TripAlertsPlugin.java` (notifications), registered in `MainActivity.java`.
 
@@ -24,6 +27,8 @@ VITE_SUPABASE_ANON_KEY=<anon key>
 ```
 
 Realtime must be on (it is by default). Without keys, the app falls back to local mode, where browser tabs on the same origin share with each other.
+
+Optional: `VITE_PUBLIC_URL` is the website that invite links from the Android app point to (default `https://waytogether-azure.vercel.app`). On the web, links use the address the app is open on.
 
 ## Run
 
@@ -49,11 +54,20 @@ cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Content
 
 The APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.
 
+## Website icons and link preview
+
+`public/` holds the favicon, home-screen icons, web manifest and the 1200×630 image shown when an invite link is shared in WhatsApp and similar apps. They're rendered from the app logo and a promo screenshot with the local Chrome:
+
+```bash
+node scripts/generate_web_assets.mjs
+```
+
 ## Where things live
 
 - `src/lib/realtime.js`: trip channels, presence + broadcast, auto-reconnect, trip lookup by code.
 - `src/lib/location.js`: GPS (foreground, background, mock) and battery.
-- `src/lib/places.js`: place search and routing.
+- `src/lib/places.js`: place search and routing (requests give up after a timeout instead of hanging on weak signal).
+- `src/lib/invite.js`: invite links and opening the app from one.
 - `src/state/TripContext.jsx`: the trip engine. Covers riders, distances, the route match, Convoy Health, alerts (stops, off-route, falling behind, offline, low battery, SOS) and actions.
 - `src/screens/HomeScreen.jsx`: Google-Maps-style home, "Where to?" search, route preview, create trip, join by code or QR.
 - `src/screens/TripScreen.jsx`: the live trip map, friend cards, status, invite, SOS, regroup pin, change destination, end trip.

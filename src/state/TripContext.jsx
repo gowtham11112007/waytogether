@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { ShieldQuestion } from 'lucide-react'
+import { Flag, MapPinned, Music2, ShieldQuestion, UserMinus } from 'lucide-react'
 import { CHECKIN_OPTIONS, STATUS } from '../data/trip'
 import { chime, playSiren } from '../lib/alarm'
-import { haversine, nearestOnRoute } from '../lib/geo'
+import { formatDistance, haversine, nearestOnRoute } from '../lib/geo'
 import { appInBackground, askNotificationPermission, haptic, systemNotify } from '../lib/notify'
 import { getRoute } from '../lib/places'
 import { addHistory, clearChat, loadActiveTrip, loadChat, newId, newTripCode, saveActiveTrip, saveChat } from '../lib/profile'
@@ -26,6 +26,8 @@ export const CHECKIN_MS = (testParam('checkinSec') || 120) * 1000 // 2 min to an
 const STILL_RADIUS = 40 // metres of GPS wobble that still counts as "not moving"
 const AUTO_RESUME = 500 // riding 500 m away from a declared stop = back on the road
 const RESUMABLE = new Set(['fuel', 'food', 'rest', 'waiting', 'regroup'])
+const ARRIVE_RADIUS = 200 // within 200 m of the route counts as having reached it
+const LEFT_GRACE = 30000 // ignore a rider's leftover position updates for 30 s after they leave
 
 const TripCtx = createContext(null)
 export const useTrip = () => useContext(TripCtx)
@@ -33,27 +35,68 @@ export const useTrip = () => useContext(TripCtx)
 let alertSeq = 0
 const makeAlert = (a) => ({ id: `${Date.now()}-${++alertSeq}`, at: Date.now(), ...a })
 
+// "840 m from you", "right next to you"
+const fromYou = (d) => (d < 50 ? 'right next to you' : `${formatDistance(d)} from you`)
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1)
+
 function healthOf(members) {
   const placed = members.filter((m) => m.latlng)
   const n = placed.length
-  const out = placed.filter((m) => !m.inPack).sort((a, b) => b.gap - a.gap)
-  const together = n - out.length
-  const km = (m) => (m.gap / 1000).toFixed(1)
-  if (n <= 1) return { level: 'info', title: 'Waiting for friends', line: 'Share the trip code so friends can join.', together: n, n }
-  if (out.length === 0) return { level: 'ok', title: 'Everyone together', line: `All ${n} riders are within 800 m.`, together, n }
-  // In a bigger group one straggler under 1.5 km is still "together"; in a small group anyone away counts.
-  if (n >= 4 && out.length === 1 && out[0].gap <= 1500) {
-    return { level: 'ok', title: 'Everyone together', line: `${together} of ${n} riders are within 800 m.`, together, n }
+  const live = placed.filter((m) => m.state !== 'offline') // offline riders get their own alert
+  const riding = live.filter((m) => m.arrived)
+  const coming = live.filter((m) => !m.arrived && !m.you)
+  const out = riding.filter((m) => !m.inPack).sort((a, b) => b.gap - a.gap)
+  const together = riding.length - out.length
+  const offline = n - live.length
+  const base = { together, n }
+
+  // Someone needs help: that's the only thing the convoy should be looking at.
+  const alarm = members.find((m) => !m.you && (m.state === 'sos' || m.state === 'noreply'))
+  if (alarm) {
+    return {
+      ...base,
+      level: 'danger',
+      memberId: alarm.id,
+      title: alarm.state === 'sos' ? `${alarm.name} needs help` : `${alarm.name} isn’t responding`,
+      line: alarm.fromMe != null ? `${cap(fromYou(alarm.fromMe))}. Tap to see them on the map.` : 'Showing their last known location.',
+    }
   }
-  if (out[0].gap > 3000) return { level: 'danger', title: 'Convoy split', line: `${out[0].name} is ${km(out[0])} km away from the group.`, together, n }
+  if (n <= 1) return { ...base, level: 'info', title: 'Waiting for friends', line: 'Share the trip code so friends can join.' }
+
+  const me = placed.find((m) => m.you)
+  if (me && !me.arrived) return { ...base, level: 'info', title: 'You’re on the way', line: `The group is ${formatDistance(me.gap)} away.` }
+
+  const onWay = coming.length === 1 ? `${coming[0].name} is on the way` : coming.length ? `${coming.length} friends are on the way` : ''
+  const offlineNote = offline ? ` ${offline} offline.` : ''
+  if (out.length === 0) {
+    if (riding.length <= 1 && coming.length) {
+      const c = coming[0]
+      return { ...base, level: 'info', title: onWay, line: coming.length === 1 && c.fromMe != null ? `${cap(fromYou(c.fromMe))}, heading to the group.` : 'They show up here as they reach the route.' }
+    }
+    if (riding.length <= 1) return { ...base, level: 'warn', title: offline === 1 ? 'Your friend is offline' : 'Friends are offline', line: 'Showing their last known location.' }
+    if (coming.length) return { ...base, level: 'ok', title: 'Group together', line: `${together} riders within 800 m. ${onWay}.${offlineNote}` }
+    return { ...base, level: 'ok', title: offline ? 'Group together' : 'Everyone together', line: `All ${together} riders are within 800 m.${offlineNote}` }
+  }
+  // In a bigger group one straggler under 1.5 km is still "together"; in a small group anyone away counts.
+  if (riding.length >= 4 && out.length === 1 && out[0].gap <= 1500) {
+    return { ...base, level: 'ok', title: 'Everyone together', line: `${together} of ${riding.length} riders are within 800 m.` }
+  }
+  // With two riders "the group" is just the other person.
+  const other = riding.length === 2 ? riding.find((m) => m !== out[0]) : null
+  const away = (m) => {
+    const km = `${(m.gap / 1000).toFixed(1)} km`
+    if (other) return m.you ? `You’re ${km} from ${other.name}.` : `${m.name} is ${km} from ${other.you ? 'you' : other.name}.`
+    return `${m.you ? 'You’re' : `${m.name} is`} ${km} ${m.ahead ? 'ahead of' : 'away from'} the group.`
+  }
+  if (out[0].gap > 3000) return { ...base, level: 'danger', title: 'Convoy split', line: away(out[0]) }
   const behind = out.filter((m) => m.gap > 1500)
   const line =
     out.length === 1
-      ? `${out[0].name} is ${km(out[0])} km away from the group.`
+      ? away(out[0])
       : behind.length
         ? `${behind.length} ${behind.length > 1 ? 'riders are' : 'rider is'} more than 1.5 km away.`
         : `${out.length} riders are drifting from the group.`
-  return { level: 'warn', title: 'Convoy spreading', line, together, n }
+  return { ...base, level: 'warn', title: 'Convoy spreading', line }
 }
 
 const freshStats = () => ({ startedAt: Date.now(), distance: 0, maxSpeed: 0, last: null, riders: [] })
@@ -65,9 +108,10 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
   const [route, setRoute] = useState(null)
   const [routeError, setRouteError] = useState(null)
   const [alerts, setAlerts] = useState([])
-  const [seen, setSeen] = useState(0)
+  // Unread counts go by time, not by list length (the lists are capped, so lengths stop growing).
+  const [seenAt, setSeenAt] = useState(0)
   const [messages, setMessages] = useState(() => (loadActiveTrip()?.code ? loadChat(loadActiveTrip().code) : []))
-  const [chatSeen, setChatSeen] = useState(() => (loadActiveTrip()?.code ? loadChat(loadActiveTrip().code).length : 0))
+  const [chatSeenAt, setChatSeenAt] = useState(() => Date.now())
   const [toast, setToast] = useState(null)
   const [myStatus, setMyStatusState] = useState(() => loadActiveTrip()?.status || 'riding')
   const [ended, setEnded] = useState(() => (loadActiveTrip()?.endedBy ? { by: loadActiveTrip().endedBy } : null))
@@ -79,6 +123,10 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
   const still = useRef({}) // memberId -> { anchor, since } for the not-moving check
   const stopAnchor = useRef(null) // where I declared a stop (for auto "back on road")
   const repliedAt = useRef({}) // memberId -> when they answered a check-in (to skip the duplicate status alert)
+  const arrivedRef = useRef(new Set()) // riders who have reached the route or the group at least once
+  const departed = useRef({}) // memberId -> when they tapped Leave
+  const fixRef = useRef(fix)
+  fixRef.current = fix
 
   const channel = useRef(null)
   const rosterRef = useRef(roster)
@@ -127,10 +175,12 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     return () => clearTimeout(id)
   }, [toast])
 
+  // Only when a trip starts or ends, not on every status change (that would re-ask for permission).
+  const inTrip = !!active
   useEffect(() => {
-    onActiveChange?.(!!active)
-    if (active) askNotificationPermission()
-  }, [active, onActiveChange])
+    onActiveChange?.(inTrip)
+    if (inTrip) askNotificationPermission()
+  }, [inTrip, onActiveChange])
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 5000)
@@ -145,15 +195,15 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       const old = cur.meta
       setActive({ ...cur, meta })
       if (old?.dest?.name !== meta.dest?.name || old?.dest?.latlng?.join() !== meta.dest?.latlng?.join()) {
-        pushAlert({ level: 'info', kind: 'trip', title: `New destination: ${meta.dest?.name}`, body: `${fromName || meta.updatedBy || 'The leader'} changed where you're heading. Route updated.` })
+        pushAlert({ level: 'info', kind: 'trip', Icon: MapPinned, title: `New destination: ${meta.dest?.name}`, body: `${fromName || meta.updatedBy || 'The leader'} changed where you're heading. Route updated.` })
       }
       if (meta.regroup && meta.regroup.at !== old?.regroup?.at) {
-        pushAlert({ level: 'info', kind: 'regroup', title: `Regroup at ${meta.regroup.name}`, body: `${meta.regroup.byName} set a meeting point on the map.`, action: 'Show on map', regroup: true })
+        pushAlert({ level: 'info', kind: 'regroup', Icon: Flag, title: `Regroup at ${meta.regroup.name}`, body: `${meta.regroup.byName} set a meeting point on the map.`, action: 'Show on map', regroup: true })
       } else if (!meta.regroup && old?.regroup) {
-        pushAlert({ level: 'ok', title: 'Regroup point cleared', body: 'Continue on the route.' }, { sound: false })
+        pushAlert({ level: 'ok', Icon: Flag, title: 'Regroup point cleared', body: 'Continue on the route.' }, { sound: false })
       }
       if (meta.playlist && meta.playlist !== old?.playlist) {
-        pushAlert({ level: 'info', title: 'Trip playlist added', body: `${meta.updatedBy || 'A friend'} shared music for the ride.` }, { sound: false })
+        pushAlert({ level: 'info', Icon: Music2, title: 'Trip playlist added', body: `${meta.updatedBy || 'A friend'} shared music for the ride.` }, { sound: false })
       }
     },
     [pushAlert, setActive],
@@ -164,7 +214,16 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     if (!active?.code || !profile?.id || active.endedBy) return
     joinedAt.current = Date.now()
     flags.current = {}
+    arrivedRef.current = new Set()
+    departed.current = {}
     setRoster({})
+    // Riders who tapped Leave: their last position updates can still arrive for a few seconds.
+    const gone = (id) => Date.now() - (departed.current[id] || 0) < LEFT_GRACE
+    // Where a friend is, relative to me: "840 m from you".
+    const where = (p) => {
+      const mine = fixRef.current?.latlng
+      return mine && p.lat != null && p.lng != null ? fromYou(haversine(mine, [p.lat, p.lng])) : null
+    }
     const ch = joinChannel(active.code, profile.id, {
       onStatus: setConn,
       onSync: (all) => {
@@ -172,19 +231,20 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         const prev = rosterRef.current
         const next = {}
         for (const [id, payload] of Object.entries(all)) {
-          if (id === profile.id) continue
+          if (id === profile.id || gone(id)) continue
           if (payload.trip) adoptMeta(payload.trip, payload.name)
           const before = prev[id]
           next[id] = { payload, online: true, lastSeen: t }
           const oldStatus = before?.payload?.status
           const st = payload.status
+          const w = where(payload)
           if (!before && t - joinedAt.current > 4000) {
-            pushAlert({ level: 'info', memberId: id, title: `${payload.name} joined the trip`, body: 'Now sharing live location.' })
+            pushAlert({ level: 'info', memberId: id, title: `${payload.name} joined the trip`, body: w ? `Sharing live location, ${w}.` : 'Now sharing live location.' })
           } else if (before && oldStatus !== st && Date.now() - (repliedAt.current[id] || 0) < 15000 && st !== 'sos') {
             // Status came from a check-in answer: that reply already told everyone.
           } else if (before && oldStatus !== st) {
             if (st === 'sos') {
-              pushAlert({ level: 'danger', kind: 'sos', memberId: id, title: `${payload.name} sent an SOS`, body: 'Live location shared. Check on them now.', action: `Navigate to ${payload.name}` })
+              pushAlert({ level: 'danger', kind: 'sos', memberId: id, title: `${payload.name} sent an SOS`, body: `${w ? `${cap(w)}. ` : ''}Check on them now.`, action: `Navigate to ${payload.name}` })
             } else if (oldStatus === 'sos') {
               pushAlert({ level: 'ok', memberId: id, title: `${payload.name} cancelled SOS`, body: 'They marked themselves safe.' })
             } else if (st === 'riding') {
@@ -196,7 +256,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
                 kind: st,
                 memberId: id,
                 title: `${payload.name}: ${STATUS[st].label}`,
-                body: lv === 'danger' ? 'Location shared with the group.' : 'The group has been notified.',
+                body: lv === 'danger' ? `${w ? `${cap(w)}. ` : ''}Check on them now.` : w ? `Stopped ${w}.` : 'Their stop is shown on your map.',
                 action: lv === 'danger' ? `Navigate to ${payload.name}` : undefined,
               })
             }
@@ -204,7 +264,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
           if (!stats.current.riders.includes(payload.name)) stats.current.riders.push(payload.name)
         }
         // Keep people who dropped out, marked offline, so their last spot stays on the map.
-        for (const [id, m] of Object.entries(prev)) if (!next[id]) next[id] = { ...m, online: false }
+        for (const [id, m] of Object.entries(prev)) if (!next[id] && !gone(id)) next[id] = { ...m, online: false }
         setRoster(next)
       },
       onEvent: (evt) => {
@@ -212,10 +272,26 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
           pushAlert({ level: 'info', memberId: evt.from, title: `${evt.fromName} is asking where you are`, body: 'Your live location is already shared.' })
         } else if (evt.type === 'trip') {
           adoptMeta(evt.meta, evt.byName)
+        } else if (evt.type === 'left' && evt.by !== profile.id) {
+          // Left on purpose: take them off the map instead of showing them as "offline" forever.
+          departed.current[evt.by] = Date.now()
+          const without = (o) => {
+            if (!o[evt.by]) return o
+            const next = { ...o }
+            delete next[evt.by]
+            return next
+          }
+          setRoster(without)
+          setCheckins(without) // a pending "Are you OK?" must not turn into an emergency
+          setNoReply(without)
+          delete still.current[evt.by]
+          pushAlert({ level: 'info', Icon: UserMinus, memberId: evt.by, title: `${evt.byName} left the trip`, body: 'They stopped sharing their location.' }, { sound: false })
         } else if (evt.type === 'msg' && evt.msg?.from !== profile.id) {
+          // Stamp arrival with this phone's clock: the sender's clock may be off.
+          const msg = { ...evt.msg, rcv: Date.now() }
           setMessages((list) => {
-            if (list.some((m) => m.id === evt.msg.id)) return list
-            const next = [...list, evt.msg].slice(-150)
+            if (list.some((m) => m.id === msg.id)) return list
+            const next = [...list, msg].slice(-150)
             saveChat(active.code, next)
             return next
           })
@@ -261,16 +337,13 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
           })
           pushAlert({ level: 'danger', kind: 'sos', memberId: evt.member, title: `${evt.memberName} isn’t responding`, body: 'No reply to “Are you OK?” and their phone may be off. Treat it as an emergency.', action: `Navigate to ${evt.memberName}` })
         } else if (evt.type === 'end' && evt.by !== profile.id) {
-          // Stop sharing immediately; the screen then confirms and returns home.
-          // Remember it, so a phone that restarts doesn't rejoin a finished trip.
-          ch.leave()
+          // Stop sharing immediately (this effect's cleanup leaves the channel once endedBy is set);
+          // the screen then confirms and returns home. It's saved with the trip, so a phone that
+          // restarts doesn't rejoin a finished trip.
           channel.current = null
-          if (activeRef.current) {
-            activeRef.current = { ...activeRef.current, endedBy: evt.byName }
-            saveActiveTrip(activeRef.current)
-          }
+          if (activeRef.current) setActive({ ...activeRef.current, endedBy: evt.byName })
           setEnded({ by: evt.byName })
-          pushAlert({ level: 'info', title: 'Trip ended', body: `${evt.byName} ended the trip.` }, { toast: false })
+          pushAlert({ level: 'info', Icon: Flag, title: 'Trip ended', body: `${evt.byName} ended the trip.` }, { toast: false })
         }
       },
     })
@@ -328,11 +401,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       else if (haversine(stopAnchor.current, fix.latlng) > AUTO_RESUME) {
         stopAnchor.current = null
         setMyStatusState('riding')
-        const cur = activeRef.current
-        if (cur) {
-          activeRef.current = { ...cur, status: 'riding' }
-          saveActiveTrip(activeRef.current)
-        }
+        if (activeRef.current) setActive({ ...activeRef.current, status: 'riding' })
         notify({ level: 'ok', title: 'Back on the road', body: 'Your status switched to Riding automatically.' })
       }
     } else stopAnchor.current = null
@@ -418,41 +487,80 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         lastSeen: r.lastSeen,
       })
     }
+    const isOffline = (m) => !m.you && (!m.online || now - m.updatedAt > OFFLINE_AFTER)
     const placed = list.filter((m) => m.latlng)
-    const anchor = placed.find((m) => m.you) || placed.find((m) => m.role === 'leader') || placed[0]
-    const inPack = new Set(anchor ? [anchor.id] : [])
+    const live = placed.filter((m) => !isOffline(m)) // a stale last-known spot shouldn't decide where the group is
+    const near = {}
+    for (const m of placed) near[m.id] = route ? nearestOnRoute(route, m.latlng) : null
+
+    // Riders count as part of the convoy once they've reached the route or the group (the leader always has).
+    // Until then they're "on the way": no off-route or falling-behind alarms while they ride over to meet everyone.
+    const arrived = arrivedRef.current
+    for (const m of live) if (m.role === 'leader' || (near[m.id] && near[m.id].off < ARRIVE_RADIUS)) arrived.add(m.id)
     let grew = true
     while (grew) {
       grew = false
-      for (const m of placed) {
-        if (inPack.has(m.id)) continue
-        if (placed.some((o) => inPack.has(o.id) && haversine(o.latlng, m.latlng) <= PACK_GAP)) {
-          inPack.add(m.id)
+      for (const m of live) {
+        if (arrived.has(m.id)) continue
+        if (live.some((o) => arrived.has(o.id) && haversine(o.latlng, m.latlng) <= PACK_GAP)) {
+          arrived.add(m.id)
           grew = true
         }
       }
     }
+    // No route and no leader to measure from yet: everyone counts.
+    const anyArrived = live.some((m) => arrived.has(m.id))
+    const counted = live.filter((m) => !anyArrived || arrived.has(m.id))
+
+    // The group is the biggest cluster of riders chained within 800 m of each other
+    // (ties: the leader's cluster, then yours). It is never just "wherever you are".
+    const clusters = []
+    const taken = new Set()
+    for (const m of counted) {
+      if (taken.has(m.id)) continue
+      const c = [m]
+      taken.add(m.id)
+      for (let i = 0; i < c.length; i++) {
+        for (const o of counted) {
+          if (!taken.has(o.id) && haversine(c[i].latlng, o.latlng) <= PACK_GAP) {
+            taken.add(o.id)
+            c.push(o)
+          }
+        }
+      }
+      clusters.push(c)
+    }
+    const weight = (c) => c.length * 4 + (c.some((m) => m.role === 'leader') ? 2 : 0) + (c.some((m) => m.you) ? 1 : 0)
+    const pack = clusters.reduce((best, c) => (!best || weight(c) > weight(best) ? c : best), null) || []
+    const inPack = new Set(pack.map((m) => m.id))
+    const packAlong = pack.map((o) => near[o.id]?.along).filter((v) => v != null)
+    const front = packAlong.length ? Math.max(...packAlong) : null
+
     const me = list.find((m) => m.you)
     return list.map((m) => {
-      if (!m.latlng) return { ...m, state: m.online ? m.status : 'offline', gap: 0, inPack: false, fromMe: null }
-      const gap = inPack.has(m.id) ? 0 : Math.min(...placed.filter((o) => inPack.has(o.id)).map((o) => haversine(o.latlng, m.latlng)))
-      const onRoute = route ? nearestOnRoute(route, m.latlng) : null
-      const offline = !m.you && (!m.online || now - m.updatedAt > OFFLINE_AFTER)
+      const isHere = !anyArrived || arrived.has(m.id)
+      if (!m.latlng) return { ...m, state: m.online ? m.status : 'offline', gap: 0, inPack: false, arrived: isHere, fromMe: null }
+      const gap = inPack.has(m.id) || !pack.length ? 0 : Math.min(...pack.map((o) => haversine(o.latlng, m.latlng)))
+      const onRoute = near[m.id]
+      const ahead = !inPack.has(m.id) && front != null && onRoute != null && onRoute.along > front
       const st = still.current[m.id]
       const stillFor = !m.you && st ? now - st.since : 0
       let state = m.status
       if (m.status === 'sos') state = 'sos'
       else if (noReply[m.id]) state = 'noreply'
-      else if (offline) state = 'offline'
+      else if (isOffline(m)) state = 'offline'
       else if (m.status === 'riding') {
         if (stillFor > STILL_MS) state = 'still'
+        else if (!isHere) state = 'joining'
         else if (onRoute && onRoute.off > 300) state = 'offroute'
-        else if (gap > 1500) state = 'behind'
+        else if (gap > 1500) state = ahead ? 'ahead' : 'behind'
       }
       return {
         ...m,
         gap,
         inPack: inPack.has(m.id),
+        arrived: isHere,
+        ahead,
         fromMe: me?.latlng ? haversine(me.latlng, m.latlng) : null,
         off: onRoute?.off ?? null,
         along: onRoute?.along ?? null,
@@ -499,10 +607,21 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         f['off' + m.id] = false
         pushAlert({ level: 'ok', memberId: m.id, title: `${m.name} is back on route`, body: 'Rejoined the planned route.' }, { toast: false, sound: false })
       }
-      if (m.gap > 1500 && !f['behind' + m.id]) {
+      if ((m.state === 'behind' || m.state === 'ahead') && !f['behind' + m.id]) {
         f['behind' + m.id] = true
-        pushAlert({ level: 'warn', memberId: m.id, title: `${m.name} is falling behind`, body: `${m.name} is ${(m.gap / 1000).toFixed(1)} km away from the nearest group member.`, action: `View ${m.name}` })
+        const km = (m.gap / 1000).toFixed(1)
+        pushAlert(
+          m.state === 'ahead'
+            ? { level: 'warn', memberId: m.id, title: `${m.name} is far ahead`, body: `${km} km ahead of the group. Ask them to wait?`, action: `View ${m.name}` }
+            : { level: 'warn', memberId: m.id, title: `${m.name} is falling behind`, body: `${km} km behind the group.`, action: `View ${m.name}` },
+        )
       } else if (m.gap < 1000) f['behind' + m.id] = false
+      // Joined from somewhere else and has now reached the convoy.
+      if (m.state === 'joining') f['join' + m.id] = true
+      else if (m.arrived && f['join' + m.id]) {
+        f['join' + m.id] = false
+        pushAlert({ level: 'ok', memberId: m.id, title: m.inPack ? `${m.name} reached the group` : `${m.name} is on the route now`, body: 'Riding with the convoy.' }, { sound: false })
+      }
       if (m.battery != null && m.battery < 15 && !f['bat' + m.id]) {
         f['bat' + m.id] = true
         pushAlert({ level: 'info', memberId: m.id, title: `${m.name}'s battery is below 15%`, body: 'Their location may stop updating soon.' })
@@ -553,9 +672,9 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       const next = { code, role, meta, status: 'riding', stats: { ...stats.current } }
       setActive(next)
       setAlerts([])
-      setSeen(0)
+      setSeenAt(0)
       setMessages(loadChat(code))
-      setChatSeen(loadChat(code).length)
+      setChatSeenAt(Date.now())
       setEnded(null)
       setSummary(null)
       setMyStatusState('riding')
@@ -565,8 +684,8 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
   )
 
   const createTrip = useCallback(
-    ({ name, type, dest, start: from }) => {
-      const code = newTripCode()
+    ({ name, type, dest, start: from, code: freeCode }) => {
+      const code = freeCode || newTripCode()
       start(code, 'leader', { code, name, type, dest, start: from, leaderId: profile.id, leaderName: profile.name, createdAt: Date.now(), rev: 1 })
       return code
     },
@@ -618,7 +737,12 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     setMessages([])
   }, [profile, alerts.length, messages.length])
 
-  const leaveTrip = finish
+  // Tell the convoy you left on purpose (so you vanish from their map), then wrap up.
+  const leaveTrip = useCallback(() => {
+    if (!channel.current) return finish()
+    channel.current.send({ type: 'left', by: profile.id, byName: profile.name })
+    setTimeout(finish, 300)
+  }, [profile, finish])
 
   const endTrip = useCallback(() => {
     channel.current?.send({ type: 'end', by: profile.id, byName: profile.name })
@@ -628,14 +752,12 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
   const setMyStatus = useCallback(
     (status) => {
       setMyStatusState(status)
-      const cur = activeRef.current
-      if (cur) {
-        // Keep the ref in sync too, so the periodic save can't overwrite an active SOS.
-        activeRef.current = { ...cur, status }
-        saveActiveTrip(activeRef.current)
-      }
+      // Through setActive (state + ref + storage together): the 20-second save copies the trip state,
+      // so editing only the ref let it put back the old status (an SOS lost, or a cancelled one back,
+      // after the app restarts).
+      if (activeRef.current) setActive({ ...activeRef.current, status })
     },
-    [],
+    [setActive],
   )
 
   const ping = useCallback(
@@ -691,7 +813,6 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         saveChat(cur.code, next)
         return next
       })
-      setChatSeen((n) => n + 1)
       channel.current?.send({ type: 'msg', msg })
     },
     [profile],
@@ -711,11 +832,11 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     health,
     progress,
     alerts,
-    unread: Math.max(0, alerts.length - seen),
-    markSeen: () => setSeen(alerts.length),
+    unread: alerts.filter((a) => a.at > seenAt).length,
+    markSeen: () => setSeenAt(Date.now()),
     messages,
-    unreadChat: Math.max(0, messages.length - chatSeen),
-    markChatSeen: () => setChatSeen(messages.length),
+    unreadChat: messages.filter((m) => m.from !== profile?.id && (m.rcv || m.at) > chatSeenAt).length,
+    markChatSeen: () => setChatSeenAt(Date.now()),
     toast,
     notify,
     dismissToast: () => setToast(null),

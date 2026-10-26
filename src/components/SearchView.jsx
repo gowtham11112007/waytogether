@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Loader2, MapPin, X } from 'lucide-react'
 import { formatKm, haversine } from '../lib/geo'
 import { searchPlaces } from '../lib/places'
+import { useEscape } from './ui'
 
 // Full-screen place search (Photon / OpenStreetMap), like Google Maps' search page.
 export default function SearchView({ near: liveNear, onPick, onClose, placeholder = 'Search destination', title }) {
@@ -12,6 +13,7 @@ export default function SearchView({ near: liveNear, onPick, onClose, placeholde
   const [state, setState] = useState('idle')
   const input = useRef(null)
   useEffect(() => input.current?.focus(), [])
+  useEscape(true, onClose)
   useEffect(() => {
     if (q.trim().length < 2) {
       setResults([])

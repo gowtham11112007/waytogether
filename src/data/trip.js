@@ -1,4 +1,4 @@
-import { Coffee, Fuel, MapPin, Navigation, OctagonPause, Siren, UtensilsCrossed, Wrench, CircleCheck, Route, TriangleAlert, WifiOff, Hourglass, PhoneOff } from 'lucide-react'
+import { Coffee, FastForward, Fuel, MapPin, Merge, Navigation, OctagonPause, Siren, UtensilsCrossed, Wrench, CircleCheck, Route, TriangleAlert, WifiOff, Hourglass, PhoneOff } from 'lucide-react'
 
 export const LEVEL = {
   ok: { color: '#16A34A', soft: '#DCFCE7', text: '#15803D' },
@@ -19,10 +19,13 @@ export const STATUS = {
   regroup: { label: 'Regroup here', level: 'info', Icon: MapPin, stop: true },
   offroute: { label: 'Off route', level: 'warn', Icon: Route },
   behind: { label: 'Falling behind', level: 'warn', Icon: TriangleAlert },
+  ahead: { label: 'Far ahead', level: 'warn', Icon: FastForward },
   sos: { label: 'SOS', level: 'danger', Icon: Siren, stop: true },
   offline: { label: 'Offline', level: 'muted', Icon: WifiOff },
   still: { label: 'Not moving', level: 'warn', Icon: Hourglass },
   noreply: { label: 'No response', level: 'danger', Icon: PhoneOff },
+  // Joined from somewhere else and hasn't reached the route or the group yet.
+  joining: { label: 'On the way', level: 'info', Icon: Merge },
 }
 
 // The one-tap options in "What's happening?"

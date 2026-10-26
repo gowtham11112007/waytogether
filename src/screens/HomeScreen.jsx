@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
-import { ArrowLeft, Bike, Car, ChevronRight, Clock, Flag, Gauge, Layers, Loader2, LocateFixed, MapPin, Navigation, Route as RouteIcon, ScanLine, Search, Timer, Users, X } from 'lucide-react'
+import { ArrowLeft, Bike, Car, ChevronRight, Clock, Flag, Gauge, Layers, Loader2, LocateFixed, MapPin, Navigation, RotateCw, Route as RouteIcon, ScanLine, Search, Timer, Users, X } from 'lucide-react'
 import MapView from '../components/MapView'
 import { Avatar, ModalSheet, PrimaryButton } from '../components/ui'
 import QRScanner from '../components/QRScanner'
@@ -9,7 +9,7 @@ import { formatDuration, formatKm, haversine } from '../lib/geo'
 import { getRoute, placeName, searchPlaces } from '../lib/places'
 import { isValidCode, loadHistory, normalizeCode } from '../lib/profile'
 import { setSetting, useSettings } from '../lib/settings'
-import { lookupTrip } from '../lib/realtime'
+import { freeTripCode, lookupTrip } from '../lib/realtime'
 import { useTrip } from '../state/TripContext'
 
 function LocationBanner({ loc }) {
@@ -31,6 +31,15 @@ function LocationBanner({ loc }) {
 function PlaceSheet({ place, route, routeState, canCreate, onCreate, onClose }) {
   const [name, setName] = useState(`${place.name} trip`)
   const [type, setType] = useState('Bike')
+  const [busy, setBusy] = useState(false)
+  const create = async () => {
+    setBusy(true)
+    try {
+      await onCreate({ name: name.trim(), type })
+    } catch {
+      setBusy(false)
+    }
+  }
   return (
     <section className="animate-fade-up absolute inset-x-0 bottom-0 z-[1100] rounded-t-[28px] bg-white px-5 pb-safe pt-2 shadow-[0_-8px_30px_rgba(17,24,39,0.16)]">
       <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-300" />
@@ -81,26 +90,35 @@ function PlaceSheet({ place, route, routeState, canCreate, onCreate, onClose }) 
           </button>
         ))}
       </div>
-      <PrimaryButton className="mt-4" disabled={!canCreate || !name.trim()} onClick={() => onCreate({ name: name.trim(), type })}>
-        <Navigation size={19} fill="currentColor" /> Create group trip
+      <PrimaryButton className="mt-4" disabled={!canCreate || !name.trim() || busy} onClick={create}>
+        {busy ? (
+          <>
+            <Loader2 size={19} className="animate-spin" /> Creating trip…
+          </>
+        ) : (
+          <>
+            <Navigation size={19} fill="currentColor" /> Create group trip
+          </>
+        )}
       </PrimaryButton>
     </section>
   )
 }
 
-function JoinSheet({ open, onClose, myLatLng, onJoin }) {
+function JoinSheet({ open, onClose, myLatLng, onJoin, initialCode }) {
   const [code, setCode] = useState('')
   const [state, setState] = useState('idle') // idle | looking | found | missing
   const [found, setFound] = useState(null)
   const [scanning, setScanning] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!open) {
       setCode('')
       setState('idle')
       setFound(null)
-    }
-  }, [open])
+    } else if (initialCode) setCode(initialCode)
+  }, [open, initialCode])
 
   useEffect(() => {
     if (!isValidCode(code)) {
@@ -118,7 +136,7 @@ function JoinSheet({ open, onClose, myLatLng, onJoin }) {
     return () => {
       alive = false
     }
-  }, [code])
+  }, [code, attempt])
 
   const nearest = found && myLatLng ? Math.min(...found.riders.filter((r) => r.lat != null).map((r) => haversine(myLatLng, [r.lat, r.lng]))) : null
 
@@ -131,6 +149,7 @@ function JoinSheet({ open, onClose, myLatLng, onJoin }) {
           value={code}
           onChange={(e) => setCode(normalizeCode(e.target.value))}
           placeholder="WAY-0000"
+          autoFocus={!initialCode}
           autoComplete="off"
           autoCapitalize="characters"
           inputMode="text"
@@ -147,11 +166,16 @@ function JoinSheet({ open, onClose, myLatLng, onJoin }) {
             </div>
           )}
           {state === 'missing' && (
-            <p className="py-6 text-center text-[14px] font-semibold text-ink-2">
-              No one is sharing on <b>{code}</b> right now.
-              <br />
-              <span className="font-medium text-ink-3">Check the code, or ask the leader to open WayTogether.</span>
-            </p>
+            <div className="py-4 text-center">
+              <p className="text-[14px] font-semibold text-ink-2">
+                No one is sharing on <b>{code}</b> right now.
+                <br />
+                <span className="font-medium text-ink-3">Check the code, or ask the leader to open WayTogether.</span>
+              </p>
+              <button onClick={() => setAttempt((a) => a + 1)} className="mt-2 inline-flex h-10 items-center gap-1.5 rounded-full bg-blue-50 px-4 text-[13.5px] font-bold text-brand">
+                <RotateCw size={15} /> Try again
+              </button>
+            </div>
           )}
           {state === 'found' && found && (
             <div className="animate-fade-up rounded-2xl border border-line p-4">
@@ -198,13 +222,23 @@ function tripDuration(h) {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export default function HomeScreen({ loc, profile, onEditProfile }) {
+export default function HomeScreen({ loc, profile, onEditProfile, invite, onInviteUsed }) {
   const t = useTrip()
   const [view, setView] = useState('home') // home | search | place
   const [place, setPlace] = useState(null)
   const [route, setRoute] = useState(null)
   const [routeState, setRouteState] = useState('idle')
-  const [joinOpen, setJoinOpen] = useState(false)
+  const [joinOpen, setJoinOpen] = useState(!!invite)
+  const [joinCode, setJoinCode] = useState(invite || null) // pre-filled from an invite link
+  const codeCheck = useRef(null) // a free trip code, checked in the background while you look at the route
+
+  // Opened from an invite link: go straight to "Join trip" with the code filled in.
+  useEffect(() => {
+    if (!invite) return
+    setJoinCode(invite)
+    setJoinOpen(true)
+    onInviteUsed?.()
+  }, [invite, onInviteUsed])
   const [focus, setFocus] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [shownTrip, setShownTrip] = useState(null)
@@ -272,11 +306,16 @@ export default function HomeScreen({ loc, profile, onEditProfile }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, hasFix])
 
+  useEffect(() => {
+    if (place) codeCheck.current = freeTripCode()
+  }, [place])
+
   const create = async ({ name, type }) => {
-    const startName = await placeName(myLatLng)
+    const [startName, code] = await Promise.all([placeName(myLatLng), codeCheck.current || freeTripCode()])
     t.createTrip({
       name,
       type,
+      code,
       dest: { name: place.name, area: place.area, latlng: place.latlng },
       start: { name: startName, latlng: myLatLng },
     })
@@ -472,7 +511,16 @@ export default function HomeScreen({ loc, profile, onEditProfile }) {
         />
       )}
 
-      <JoinSheet open={joinOpen} onClose={() => setJoinOpen(false)} myLatLng={myLatLng} onJoin={(code, trip) => t.joinTrip(code, trip)} />
+      <JoinSheet
+        open={joinOpen}
+        initialCode={joinCode}
+        onClose={() => {
+          setJoinOpen(false)
+          setJoinCode(null)
+        }}
+        myLatLng={myLatLng}
+        onJoin={(code, trip) => t.joinTrip(code, trip)}
+      />
     </div>
   )
 }
