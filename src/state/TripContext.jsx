@@ -6,6 +6,7 @@ import { chime, playSiren } from '../lib/alarm'
 import { formatDistance, formatKm, haversine, nearestOnRoute } from '../lib/geo'
 import { appInBackground, askNotificationPermission, haptic, systemNotify } from '../lib/notify'
 import { getRoute } from '../lib/places'
+import { getPushToken, sendPush } from '../lib/push'
 import { addHistory, clearChat, loadActiveTrip, loadChat, newId, newTripCode, saveActiveTrip, saveChat } from '../lib/profile'
 import { joinChannel } from '../lib/realtime'
 import { getSettings } from '../lib/settings'
@@ -475,6 +476,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       heading: fix?.heading ?? 0,
       battery: getSettings().shareBattery ? battery : null,
       status: myStatus,
+      push: getPushToken(), // lets others reach this phone with SOS and stops when the app is closed
       updatedAt: Date.now(),
       trip: activeRef.current?.meta,
     }),
@@ -696,6 +698,7 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         return next
       })
       pushAlert({ level: 'danger', kind: 'sos', memberId, title: `${name} isn’t responding`, body: 'No reply to “Are you OK?”. Treat it as an emergency: call or ride to them.', action: `Navigate to ${name}` })
+      sendPush(pushTokens(), { title: `${name} isn’t responding`, body: 'No reply to “Are you OK?” in WayTogether. Treat it as an emergency.', kind: 'sos' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now, checkins])
@@ -748,6 +751,10 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
       const meta = { ...cur.meta, ...patch, rev: (cur.meta.rev || 0) + 1, updatedBy: profile.name, updatedAt: Date.now() }
       setActive({ ...cur, meta })
       channel.current?.send({ type: 'trip', meta, byName: profile.name })
+      if (patch.regroup) {
+        const kind = PLACE_KINDS[patch.regroup.kind]
+        sendPush(pushTokens(), { title: `${kind ? 'Stop' : 'Regroup'} at ${patch.regroup.name}`, body: kind ? `${profile.name} picked this ${kind[2].toLowerCase()} for the group.` : `${profile.name} set a meeting point on the map.` })
+      }
     },
     [profile, setActive],
   )
@@ -798,15 +805,22 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
     setTimeout(finish, 300)
   }, [profile, finish])
 
+  // Push tokens of everyone seen in this trip (offline riders too: that's who push is for).
+  const pushTokens = () => Object.values(rosterRef.current).map((r) => r.payload?.push)
+
   const setMyStatus = useCallback(
     (status) => {
+      if (status === 'sos' && activeRef.current?.status !== 'sos') {
+        sendPush(pushTokens(), { title: `${profile.name} sent an SOS`, body: 'Open WayTogether to see where they are and get directions.', kind: 'sos' })
+      }
       setMyStatusState(status)
       // Through setActive (state + ref + storage together): the 20-second save copies the trip state,
       // so editing only the ref let it put back the old status (an SOS lost, or a cancelled one back,
       // after the app restarts).
       if (activeRef.current) setActive({ ...activeRef.current, status })
     },
-    [setActive],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setActive, profile],
   )
 
   const ping = useCallback(

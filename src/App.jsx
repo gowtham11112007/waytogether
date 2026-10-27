@@ -7,6 +7,7 @@ import { useBattery, useMyLocation } from './lib/location'
 import { currentGoogleProfile, signOut } from './lib/auth'
 import { clearInvite, pendingInvite, watchCodeFromUrl } from './lib/invite'
 import { loadActiveTrip, loadProfile, saveActiveTrip, saveProfile } from './lib/profile'
+import { initPush } from './lib/push'
 import { useDarkTheme } from './lib/settings'
 import HomeScreen from './screens/HomeScreen'
 import SettingsScreen from './screens/SettingsScreen'
@@ -71,6 +72,11 @@ export default function App() {
   }, [])
   // During a trip on Android, location keeps flowing with the screen off (foreground service).
   const loc = useMyLocation({ background: inTrip, enabled: !!profile && !watchCode })
+  // Push alerts (SOS, group stops) once there's a profile; not for family watching a live view.
+  const signedIn = !!profile && !watchCode
+  useEffect(() => {
+    if (signedIn) initPush()
+  }, [signedIn])
   const battery = useBattery()
   const inTripRef = useRef(inTrip)
   inTripRef.current = inTrip
