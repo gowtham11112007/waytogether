@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  ArrowLeft, AudioLines, BatteryMedium, Gauge, MessageCircle, Plus, RotateCcw, Shuffle, Store, Sun, Trash2, Vibrate, Volume2, X,
+  ArrowLeft, AudioLines, BatteryMedium, Download, Gauge, Loader2, RefreshCw, MessageCircle, Plus, RotateCcw, Shuffle, Store, Sun, Trash2, Vibrate, Volume2, X,
 } from 'lucide-react'
 import { Avatar, ConfirmDialog, Segmented, Toggle, useEscape } from '../components/ui'
 import { chime } from '../lib/alarm'
@@ -8,7 +8,37 @@ import { haptic } from '../lib/notify'
 import { clearHistory, loadHistory, newId } from '../lib/profile'
 import { DEFAULT_QUICK, resetSettings, setNotify, setSetting, useSettings } from '../lib/settings'
 import { speak, voiceAvailable } from '../lib/speech'
-import { VERSION_LABEL } from '../lib/updates'
+import { Capacitor } from '@capacitor/core'
+import { openExternal } from '../lib/external'
+import { VERSION_LABEL, applyUpdate, checkForUpdate } from '../lib/updates'
+
+// Settings → App version: check for an update now instead of waiting for the home-screen banner.
+function UpdateCheck() {
+  const [u, setU] = useState({ state: 'idle' })
+  if (!Capacitor.isNativePlatform()) return <p className="mt-6 text-center text-[12px] font-semibold text-ink-3">WayTogether {VERSION_LABEL} · the website is always the latest version</p>
+  const label = { idle: 'Check for updates', checking: 'Checking…', none: 'You have the latest version', ready: 'Update downloaded: restart now', apk: 'New app version: download', applying: 'Restarting…' }[u.state]
+  const Icon = u.state === 'checking' || u.state === 'applying' ? Loader2 : u.state === 'apk' ? Download : RefreshCw
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2">
+      <button
+        disabled={u.state === 'checking' || u.state === 'applying'}
+        onClick={async () => {
+          if (u.state === 'ready') {
+            setU({ ...u, state: 'applying' })
+            return applyUpdate(u.bundleId).catch(() => setU({ state: 'idle' }))
+          }
+          if (u.state === 'apk') return openExternal(u.apk)
+          setU({ state: 'checking' })
+          setU(await checkForUpdate())
+        }}
+        className={`flex h-12 items-center gap-2 rounded-full px-5 text-[14.5px] font-bold active:scale-[0.98] ${u.state === 'ready' || u.state === 'apk' ? 'bg-brand text-white' : 'border border-line bg-white text-ink-2'}`}
+      >
+        <Icon size={17} className={Icon === Loader2 ? 'animate-spin' : ''} /> {label}
+      </button>
+      <p className="text-[12px] font-semibold text-ink-3">WayTogether {VERSION_LABEL}</p>
+    </div>
+  )
+}
 
 function Section({ title, note, children, delay = 0 }) {
   return (
@@ -331,7 +361,7 @@ export default function SettingsScreen({ profile, leaving, onClose, onSaveProfil
           </button>
         </Section>
 
-        <p className="mt-6 text-center text-[12px] font-semibold text-ink-3">WayTogether {VERSION_LABEL}</p>
+        <UpdateCheck />
       </div>
 
       <ConfirmDialog

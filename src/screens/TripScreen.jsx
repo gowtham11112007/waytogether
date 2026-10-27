@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
 import { KeepAwake } from '@capacitor-community/keep-awake'
-import { CircleCheck, CloudRain, Copy, Eye, Flag, LocateFixed, Menu, MessageCircle, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
+import { CircleCheck, CloudRain, Copy, Eye, Flag, LocateFixed, Map as MapIcon, Menu, MessageCircle, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import MapView from '../components/MapView'
 import CheckInPrompt from '../components/CheckInPrompt'
@@ -22,6 +22,7 @@ import { inviteText, inviteUrl, watchText } from '../lib/invite'
 import { rainy, weatherAt } from '../lib/weather'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
+import { saveRouteOffline } from '../lib/offlineMap'
 import { useMapStyle, useSettings } from '../lib/settings'
 import { useTrip } from '../state/TripContext'
 
@@ -188,6 +189,38 @@ export default function TripScreen({ loc, onOpenSettings }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destKey])
+  // Save the map along the route once per trip, so it still shows where there's no signal (ghats, forests).
+  const routeKey = t.route ? `${t.code}|${t.route.coords.length}` : ''
+  useEffect(() => {
+    if (!routeKey || navigator.onLine === false) return
+    let saved = null
+    try {
+      saved = localStorage.getItem('convoya.offline')
+    } catch {
+      /* storage unavailable */
+    }
+    if (saved === routeKey) return
+    let alive = true
+    const id = setTimeout(() => {
+      saveRouteOffline(t.route.coords)
+        .then((n) => {
+          if (!alive || !n) return
+          try {
+            localStorage.setItem('convoya.offline', routeKey)
+          } catch {
+            /* storage unavailable */
+          }
+          t.notify({ level: 'ok', Icon: MapIcon, title: 'Route map saved offline', body: 'The map along your route works even with no signal.' })
+        })
+        .catch(() => {})
+    }, 8000) // after the trip screen has settled
+    return () => {
+      alive = false
+      clearTimeout(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey])
+
   const showRegroup = () => {
     if (!t.trip.regroup) return
     setMode('free')

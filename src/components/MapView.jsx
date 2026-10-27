@@ -7,9 +7,12 @@ import { PLACE_KINDS } from '../data/placeKinds'
 import { LEVEL, STATUS } from '../data/trip'
 import { avatarFor } from '../lib/avatar'
 import { haversine } from '../lib/geo'
+import { cachedRequest, setupOfflineMap } from '../lib/offlineMap'
 
 // Vite can't follow MapLibre's dynamic worker path, so point it at the bundled file.
 maplibregl.setWorkerUrl(workerUrl)
+// Map files are kept on the phone, so the map still shows with no signal.
+setupOfflineMap()
 
 // Free map styles, no API keys: OpenFreeMap (OpenStreetMap vector tiles) and Esri imagery.
 // Night is "fiord": clearer roads and labels than the very dark "dark" style. Satellite is a hybrid:
@@ -294,6 +297,7 @@ export default function MapView({
       dragRotate: true,
       pitchWithRotate: true,
       refreshExpiredTiles: false,
+      transformRequest: cachedRequest,
     })
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     // Start the credits collapsed to the small (i) button; tapping it shows them. MapLibre opens them once,
