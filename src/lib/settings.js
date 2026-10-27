@@ -9,7 +9,6 @@ export const DEFAULT_SETTINGS = {
   theme: 'system', // system | light | dark
   mapStyle: 'auto', // auto (follows the theme) | light | dark | satellite
   mapPlaces: true, // petrol, hotels, food, hospitals and more on the map
-  map3d: false, // 3D map: terrain, relief, buildings, tilted view
   showSpeed: true, // speed bubble while riding
   // Units
   units: 'metric', // metric | imperial
@@ -40,6 +39,7 @@ function load() {
     if (!('theme' in saved) && saved.mapStyle === 'light') saved.mapStyle = 'auto'
     // v2: places (petrol, hotels…) are on for everyone; they used to be hidden by default.
     if ((saved.v || 1) < 2) saved.mapPlaces = true
+    delete saved.map3d // the 3D map was removed
     saved.v = DEFAULT_SETTINGS.v
     return { ...DEFAULT_SETTINGS, ...saved, notify: { ...DEFAULT_SETTINGS.notify, ...(saved.notify || {}) } }
   } catch {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  ArrowLeft, AudioLines, BatteryMedium, Building2, Gauge, MessageCircle, Plus, RotateCcw, Shuffle, Store, Sun, Trash2, Vibrate, Volume2, X,
+  ArrowLeft, AudioLines, BatteryMedium, Gauge, MessageCircle, Plus, RotateCcw, Shuffle, Store, Sun, Trash2, Vibrate, Volume2, X,
 } from 'lucide-react'
 import { Avatar, ConfirmDialog, Segmented, Toggle, useEscape } from '../components/ui'
 import { chime } from '../lib/alarm'
@@ -138,9 +138,6 @@ export default function SettingsScreen({ profile, leaving, onClose, onSaveProfil
           </Field>
           <Line>
             <Toggle icon={<Store size={19} />} label="Places on the map" hint="Petrol, hotels, food, hospitals and ATMs" on={s.mapPlaces} onChange={(v) => setSetting('mapPlaces', v)} />
-          </Line>
-          <Line>
-            <Toggle icon={<Building2 size={19} />} label="3D map" hint="Hills, buildings and a tilted view" on={s.map3d} onChange={(v) => setSetting('map3d', v)} />
           </Line>
           <Line>
             <Toggle icon={<Gauge size={19} />} label="Speed while riding" hint="Your speed in the corner of the map" on={s.showSpeed} onChange={(v) => setSetting('showSpeed', v)} />

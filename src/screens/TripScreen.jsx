@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { App as NativeApp } from '@capacitor/app'
 import { KeepAwake } from '@capacitor-community/keep-awake'
-import { CircleCheck, CloudRain, Copy, Eye, Flag, LocateFixed, Menu, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
+import { CircleCheck, CloudRain, Copy, Eye, Flag, LocateFixed, Menu, MessageCircle, Music2, Navigation2, Share2, Siren, Users } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import MapView from '../components/MapView'
 import CheckInPrompt from '../components/CheckInPrompt'
@@ -14,14 +14,15 @@ import SOSScreen from '../components/SOSScreen'
 import RulesSheet from '../components/RulesSheet'
 import TripMenu from '../components/TripMenu'
 import { Avatar, ConfirmDialog, ModalSheet, PrimaryButton, ToastSlot } from '../components/ui'
+import { PLACE_KINDS } from '../data/placeKinds'
 import { STATUS } from '../data/trip'
 import { googleMapsDirections, openExternal } from '../lib/external'
-import { formatClock, formatDistance, formatKm, speedUnit, speedValue, timeAgo } from '../lib/geo'
+import { formatClock, formatDistance, formatKm, haversine, speedUnit, speedValue, timeAgo } from '../lib/geo'
 import { inviteText, inviteUrl, watchText } from '../lib/invite'
 import { rainy, weatherAt } from '../lib/weather'
 import { haptic } from '../lib/notify'
 import { placeName } from '../lib/places'
-import { setSetting, useMapStyle, useSettings } from '../lib/settings'
+import { useMapStyle, useSettings } from '../lib/settings'
 import { useTrip } from '../state/TripContext'
 
 async function shareText(text, notify, copiedTitle) {
@@ -85,6 +86,7 @@ export default function TripScreen({ loc, onOpenSettings }) {
   const [dragging, setDragging] = useState(false) // the convoy panel is under a finger
   const [rulesOpen, setRulesOpen] = useState(false)
   const [pinMode, setPinMode] = useState(false)
+  const [spot, setSpot] = useState(null) // a place badge tapped on the map
   const [pinCenter, setPinCenter] = useState(null)
   const [pinName, setPinName] = useState('')
 
@@ -110,13 +112,14 @@ export default function TripScreen({ loc, onOpenSettings }) {
 
   // Android back button: close the top-most layer first, then minimise (sharing keeps running).
   const layers = useRef({})
-  layers.current = { sosOpen, statusOpen, selectedId, expanded, inviteOpen, sosActive, menuOpen, musicOpen, searching, pinMode, confirm }
+  layers.current = { sosOpen, statusOpen, selectedId, expanded, inviteOpen, sosActive, menuOpen, musicOpen, searching, pinMode, confirm, spot }
   useEffect(() => {
     const onBack = () => {
       const l = layers.current
       if (l.confirm) setConfirm(null)
       else if (l.searching) setSearching(false)
       else if (l.pinMode) setPinMode(false)
+      else if (l.spot) setSpot(null)
       else if (l.inviteOpen) setInviteOpen(false)
       else if (l.menuOpen) setMenuOpen(false)
       else if (l.musicOpen) setMusicOpen(false)
@@ -210,7 +213,7 @@ export default function TripScreen({ loc, onOpenSettings }) {
           padding={{ top: mapTop, bottom: mapBottom }}
           styleKey={mapStyle}
           places={settings.mapPlaces}
-          buildings={settings.map3d}
+          onPlaceClick={pinMode ? undefined : setSpot}
         />
       </div>
 
@@ -289,9 +292,6 @@ export default function TripScreen({ loc, onOpenSettings }) {
             <Siren size={20} /> {sosActive ? 'SOS ON' : 'SOS'}
           </button>
           <div className="flex flex-col gap-2.5">
-            <FloatBtn label={settings.map3d ? 'Flat map' : '3D map'} active={settings.map3d} onClick={() => setSetting('map3d', !settings.map3d)}>
-              <span className="text-[14px] font-extrabold">3D</span>
-            </FloatBtn>
             <FloatBtn label="Music" onClick={() => setMusicOpen(true)}>
               <Music2 size={20} />
             </FloatBtn>
@@ -378,6 +378,51 @@ export default function TripScreen({ loc, onOpenSettings }) {
           }
         />
       )}
+
+      {/* A place tapped on the map: make it the group's next stop (everyone's map shows it), tell the chat, or get directions. */}
+      <ModalSheet
+        open={!!spot}
+        onClose={() => setSpot(null)}
+        title={spot?.name}
+        subtitle={spot ? [spot.area, me?.latlng ? `${formatKm(haversine(me.latlng, spot.latlng))} from you` : null].filter(Boolean).join(' · ') : ''}
+      >
+        {spot && (
+          <div className="flex flex-col gap-2.5 pb-2">
+            <PrimaryButton
+              onClick={() => {
+                t.updateTrip({ regroup: { latlng: spot.latlng, name: spot.name, kind: spot.cls, by: me?.id, byName: me?.name, at: Date.now() } })
+                setSpot(null)
+                setMode('group')
+                haptic('ok')
+                t.notify({ level: 'ok', Icon: PLACE_KINDS[spot.cls]?.[0] || Flag, title: `Stop set: ${spot.name}`, body: 'Everyone sees it on their map.' })
+              }}
+            >
+              <Flag size={18} /> Stop here together
+            </PrimaryButton>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                onClick={() => {
+                  t.sendMessage(`Stop at ${spot.name}? (${spot.area}${me?.latlng ? `, ${formatKm(haversine(me.latlng, spot.latlng))} from me` : ''})`)
+                  setSpot(null)
+                  t.notify({ level: 'ok', Icon: MessageCircle, title: 'Sent to the group chat', body: spot.name })
+                }}
+                className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-line text-[15px] font-bold active:scale-[0.98]"
+              >
+                <MessageCircle size={18} /> Ask the group
+              </button>
+              <button
+                onClick={() => {
+                  openExternal(googleMapsDirections(spot.latlng))
+                  setSpot(null)
+                }}
+                className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-line text-[15px] font-bold active:scale-[0.98]"
+              >
+                <Navigation2 size={18} /> Directions
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalSheet>
 
       {/* Regroup pin-drop mode (like Google Maps "drop a pin") */}
       {pinMode && (

@@ -128,7 +128,6 @@ export default function WatchScreen({ code }) {
           padding={{ top: 96 + Math.min(emergencies.length, 2) * 72, bottom: 320 }}
           styleKey={mapStyle}
           places={settings.mapPlaces}
-          buildings={settings.map3d}
         />
       </div>
 

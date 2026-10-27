@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Flag, MapPinned, Music2, Settings2, ShieldQuestion, UserMinus } from 'lucide-react'
+import { PLACE_KINDS } from '../data/placeKinds'
 import { CHECKIN_OPTIONS, STATUS, rulesFor } from '../data/trip'
 import { chime, playSiren } from '../lib/alarm'
 import { formatDistance, formatKm, haversine, nearestOnRoute } from '../lib/geo'
@@ -216,7 +217,12 @@ export function TripProvider({ profile, fix, battery, onActiveChange, children }
         pushAlert({ level: 'info', kind: 'trip', Icon: MapPinned, title: `New destination: ${meta.dest?.name}`, body: `${fromName || meta.updatedBy || 'The leader'} changed where you're heading. Route updated.` })
       }
       if (meta.regroup && meta.regroup.at !== old?.regroup?.at) {
-        pushAlert({ level: 'info', kind: 'regroup', Icon: Flag, title: `Regroup at ${meta.regroup.name}`, body: `${meta.regroup.byName} set a meeting point on the map.`, action: 'Show on map', regroup: true })
+        const kind = PLACE_KINDS[meta.regroup.kind]
+        pushAlert(
+          kind
+            ? { level: 'info', kind: 'regroup', Icon: kind[0], title: `Stop at ${meta.regroup.name}`, body: `${meta.regroup.byName} picked this ${kind[2].toLowerCase()} for the group.`, action: 'Show on map', regroup: true }
+            : { level: 'info', kind: 'regroup', Icon: Flag, title: `Regroup at ${meta.regroup.name}`, body: `${meta.regroup.byName} set a meeting point on the map.`, action: 'Show on map', regroup: true },
+        )
       } else if (!meta.regroup && old?.regroup) {
         pushAlert({ level: 'ok', Icon: Flag, title: 'Regroup point cleared', body: 'Continue on the route.' }, { sound: false })
       }

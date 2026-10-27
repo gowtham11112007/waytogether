@@ -6,6 +6,7 @@ import { Avatar, Confetti, ModalSheet, PrimaryButton, useCountUp } from '../comp
 import { WeatherPill } from '../components/Weather'
 import QRScanner from '../components/QRScanner'
 import SearchView from '../components/SearchView'
+import { NEARBY, PLACE_KINDS } from '../data/placeKinds'
 import { formatDuration, formatKm, formatSpeed, haversine } from '../lib/geo'
 import { getRoute, placeName } from '../lib/places'
 import { isValidCode, loadHistory, normalizeCode } from '../lib/profile'
@@ -301,6 +302,57 @@ function RouteTrace({ track }) {
   )
 }
 
+// "Petrol nearby" and friends: the closest places of a kind on the map, nearest first.
+function NearbySheet({ kind, list, showDistance, onPick, onClose }) {
+  return (
+    <section className="animate-sheet-in pointer-events-auto rounded-t-[28px] bg-white pb-safe pt-2 shadow-[0_-8px_30px_rgba(17,24,39,0.14)]">
+      <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-gray-300" />
+      <div className="flex items-center gap-3 px-5">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white" style={{ background: kind.color }}>
+          <kind.Icon size={19} strokeWidth={2.4} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[18px] font-extrabold tracking-tight">{kind.label} nearby</h2>
+          <p className="truncate text-[12.5px] font-medium text-ink-3">
+            {list == null ? 'Looking around you…' : list.length ? 'Nearest first · tap one for the route' : `No ${kind.noun} on the map here`}
+          </p>
+        </div>
+        <button onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-canvas text-ink-2 active:scale-95">
+          <X size={19} />
+        </button>
+      </div>
+      <ul className="no-scrollbar mt-2 max-h-[36vh] overflow-y-auto px-2 pb-2">
+        {list == null &&
+          [0, 1, 2].map((i) => (
+            <li key={i} className="flex items-center gap-3 px-3 py-2.5">
+              <span className="h-9 w-9 animate-pulse rounded-full bg-canvas" />
+              <span className="h-4 flex-1 animate-pulse rounded-full bg-canvas" />
+            </li>
+          ))}
+        {list?.length === 0 && <li className="px-3 py-3 text-[13.5px] font-medium text-ink-3">Zoom out or move the map to look further.</li>}
+        {list?.map((p, i) => {
+          const [Icon, color] = PLACE_KINDS[p.cls] || [MapPin, kind.color]
+          return (
+            <li key={p.id} className="animate-rise" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
+              <button onClick={() => onPick(p)} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left active:bg-canvas">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white" style={{ background: color }}>
+                  <Icon size={17} strokeWidth={2.4} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-bold">{p.name}</span>
+                  <span className="block truncate text-[12.5px] font-medium text-ink-3">{p.kind}</span>
+                </span>
+                {showDistance && <span className="shrink-0 text-[13px] font-bold text-ink-2">{formatKm(p.dist)}</span>}
+                <ChevronRight size={17} className="shrink-0 text-ink-3" />
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 export default function HomeScreen({ loc, profile, onEditProfile, invite, onInviteUsed }) {
   const t = useTrip()
   const [view, setView] = useState('home') // home | search | place
@@ -319,6 +371,8 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
     onInviteUsed?.()
   }, [invite, onInviteUsed])
   const [focus, setFocus] = useState(null)
+  const [nearby, setNearby] = useState(null) // a NEARBY chip, while its list is open
+  const [nearbyList, setNearbyList] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [shownTrip, setShownTrip] = useState(null)
   const settings = useSettings()
@@ -347,11 +401,12 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
 
   // Android back: close search / route preview / join first, then leave the app.
   const layers = useRef({})
-  layers.current = { view, joinOpen }
+  layers.current = { view, joinOpen, nearby }
   useEffect(() => {
     const onBack = () => {
       const l = layers.current
       if (l.joinOpen) setJoinOpen(false)
+      else if (l.nearby) setNearby(null)
       else if (l.view !== 'home') {
         setView('home')
         setPlace(null)
@@ -406,6 +461,19 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
     })
   }
 
+  const pickNearby = (n) => {
+    if (nearby?.key === n.key) return setNearby(null)
+    setNearby(n)
+    setNearbyList(null)
+    if (myLatLng) setFocus({ type: 'point', latlng: myLatLng, zoom: 14.2, padding: { top: 140, bottom: 340 }, n: Date.now() })
+  }
+  // A place from the Nearby list or a badge tapped on the map: show the route to it.
+  const openPlace = (p) => {
+    setNearby(null)
+    setPlace({ id: p.id, name: p.name, area: p.area ?? p.kind, latlng: p.latlng })
+    setView('place')
+  }
+
   const me = loc.fix ? { latlng: loc.fix.latlng, heading: loc.fix.heading, accuracy: loc.fix.accuracy } : null
 
   return (
@@ -417,10 +485,12 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
           dest={view === 'place' ? place : null}
           focus={focus}
           mode="free"
-          padding={{ top: 90, bottom: view === 'place' ? 430 : history.length ? 390 : 300 }}
+          padding={{ top: view === 'home' ? 140 : 90, bottom: view === 'place' ? 430 : nearby ? 340 : history.length ? 390 : 300 }}
           styleKey={mapStyle}
           places={settings.mapPlaces}
-          buildings={settings.map3d}
+          category={view === 'home' ? nearby?.classes : null}
+          onPlaces={setNearbyList}
+          onPlaceClick={view === 'home' ? openPlace : undefined}
         />
       </div>
 
@@ -448,6 +518,27 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
               <span className="truncate text-[16px] font-bold">{place?.name}</span>
             </button>
           )}
+          {view === 'home' && (
+            <div className="no-scrollbar pointer-events-auto -mx-3 flex gap-2 overflow-x-auto px-3 pb-1">
+              {NEARBY.map((n) => {
+                const on = nearby?.key === n.key
+                return (
+                  <button
+                    key={n.key}
+                    onClick={() => pickNearby(n)}
+                    aria-pressed={on}
+                    className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full pl-1.5 pr-3.5 text-[13.5px] font-bold shadow-[0_2px_8px_rgba(17,24,39,0.14)] transition-colors active:scale-95 ${on ? 'text-white' : 'bg-white text-ink'}`}
+                    style={on ? { background: n.color } : undefined}
+                  >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full text-white" style={{ background: on ? 'rgba(255,255,255,0.22)' : n.color }}>
+                      <n.Icon size={13} strokeWidth={2.6} />
+                    </span>
+                    {n.label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <LocationBanner loc={loc} />
         </div>
       )}
@@ -455,16 +546,6 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
       {view === 'home' && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex flex-col">
           <div className="pointer-events-auto mb-3 mr-4 flex flex-col items-end gap-2.5 self-end">
-            <button
-              onClick={() => setSetting('map3d', !settings.map3d)}
-              aria-label={settings.map3d ? 'Flat map' : '3D map'}
-              aria-pressed={settings.map3d}
-              className={`flex h-12 w-12 items-center justify-center rounded-full text-[14px] font-extrabold shadow-[0_4px_12px_rgba(17,24,39,0.18)] transition-colors active:scale-95 ${
-                settings.map3d ? 'bg-brand text-white' : 'bg-white text-ink-2'
-              }`}
-            >
-              3D
-            </button>
             <button
               onClick={() => setSetting('mapStyle', settings.mapStyle === 'satellite' ? 'auto' : 'satellite')}
               aria-label={settings.mapStyle === 'satellite' ? 'Back to the map' : 'Satellite view'}
@@ -483,6 +564,9 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
               <LocateFixed size={22} />
             </button>
           </div>
+          {nearby ? (
+            <NearbySheet key={nearby.key} kind={nearby} list={nearbyList} showDistance={hasFix} onPick={openPlace} onClose={() => setNearby(null)} />
+          ) : (
           <section className="animate-sheet-in pointer-events-auto rounded-t-[28px] bg-white px-5 pb-safe pt-2 shadow-[0_-8px_30px_rgba(17,24,39,0.14)]">
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-gray-300" />
             <h2 className="text-[19px] font-extrabold tracking-tight">
@@ -514,6 +598,7 @@ export default function HomeScreen({ loc, profile, onEditProfile, invite, onInvi
               <Clock size={13} /> Location is shared only while you’re in a trip
             </div>
           </section>
+          )}
         </div>
       )}
 

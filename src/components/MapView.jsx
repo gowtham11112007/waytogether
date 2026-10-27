@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { Banknote, BedDouble, Coffee, Fuel, Hamburger, Landmark, Pill, Plus, Stethoscope, Utensils, Wrench } from 'lucide-react'
 import * as maplibregl from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { PLACE_KINDS } from '../data/placeKinds'
 import { LEVEL, STATUS } from '../data/trip'
 import { avatarFor } from '../lib/avatar'
+import { haversine } from '../lib/geo'
 
 // Vite can't follow MapLibre's dynamic worker path, so point it at the bundled file.
 maplibregl.setWorkerUrl(workerUrl)
@@ -36,25 +37,13 @@ export const MAP_STYLES = {
   },
 }
 
-// Places riders look for (OpenMapTiles "poi" classes), on every map style: a coloured badge with a white icon
-// from the app's own icon set ([icon, colour, line weight]). Petrol, hotels and hospitals show from zoom 13;
-// food, pharmacies, doctors, banks, ATMs and car services from zoom 15. Badges that would overlap are left out.
-const PLACE_BADGES = {
-  fuel: [Fuel, '#0891B2'],
-  lodging: [BedDouble, '#8B5CF6'],
-  hospital: [Plus, '#E5383B', 3.4],
-  doctors: [Stethoscope, '#E5383B'],
-  pharmacy: [Pill, '#E5383B'],
-  restaurant: [Utensils, '#F97316'],
-  fast_food: [Hamburger, '#F97316'],
-  cafe: [Coffee, '#F97316'],
-  car: [Wrench, '#64748B'],
-  bank: [Landmark, '#16A34A'],
-  atm: [Banknote, '#16A34A'],
-}
+// Places riders look for (PLACE_KINDS), on every map style: a coloured badge with a white icon from the app's
+// own icon set. Petrol, hotels and hospitals show from zoom 13; food, pharmacies, doctors, banks, ATMs and car
+// services from zoom 15. Badges that would overlap are left out.
 const KEY_PLACES = ['fuel', 'lodging', 'hospital']
-const MORE_PLACES = Object.keys(PLACE_BADGES).filter((c) => !KEY_PLACES.includes(c))
-const isEssential = ['match', ['get', 'class'], Object.keys(PLACE_BADGES), true, false]
+const MORE_PLACES = Object.keys(PLACE_KINDS).filter((c) => !KEY_PLACES.includes(c))
+const isEssential = ['match', ['get', 'class'], Object.keys(PLACE_KINDS), true, false]
+const PLACE_LAYERS = ['cv-places-key', 'cv-places-more']
 
 // Badge images: drawn once on a canvas at 3x (sharp on any phone), then added to each style that loads.
 const BADGE_PX = 26
@@ -73,7 +62,7 @@ function badgeImages() {
   badgeCache = {}
   const size = BADGE_PX * BADGE_RATIO
   const r = size / 2
-  for (const [cls, [Icon, color, weight = 2.4]] of Object.entries(PLACE_BADGES)) {
+  for (const [cls, [Icon, color, , weight = 2.4]] of Object.entries(PLACE_KINDS)) {
     const ctx = Object.assign(document.createElement('canvas'), { width: size, height: size }).getContext('2d')
     ctx.beginPath()
     ctx.arc(r, r, r - BADGE_RATIO, 0, Math.PI * 2)
@@ -101,8 +90,6 @@ const NIGHT_ROADS = [
   ['highway_motorway_inner', 'line-color', 'hsl(36,45%,52%)'],
   ['highway_name_other', 'text-color', 'hsl(220,30%,80%)'],
 ]
-// Elevation for the 3D map (Mapzen terrain tiles on AWS, free).
-const DEM = { type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], encoding: 'terrarium', tileSize: 256, maxzoom: 15, attribution: 'Terrain © Mapzen' }
 
 function addBadges(map, id, classes, minzoom, night, beforeId) {
   if (map.getLayer(id)) return
@@ -132,66 +119,17 @@ function addBadges(map, id, classes, minzoom, night, beforeId) {
   )
 }
 
-// Our additions to whichever style loaded: place badges, clearer labels, and the 3D pieces (terrain, relief, buildings, sky).
+// Our additions to whichever style loaded: place badges and clearer roads and labels.
 function addMapExtras(map, night) {
   const layers = map.getStyle()?.layers || []
-  const firstSymbol = layers.find((l) => l.type === 'symbol')?.id
   const satellite = !!map.getLayer('sat')
-  if (!map.getSource('cv-dem')) map.addSource('cv-dem', DEM)
-  // Relief shading goes under rivers, roads and buildings so it never greys them out.
-  // Satellite skips it: the imagery has real shadows already.
-  if (!satellite && !map.getLayer('cv-hillshade')) {
-    if (!map.getSource('cv-hill')) map.addSource('cv-hill', DEM)
-    const under = layers.find((l) => ['waterway', 'transportation', 'building', 'aeroway'].includes(l['source-layer']))?.id
-    map.addLayer(
-      {
-        id: 'cv-hillshade',
-        type: 'hillshade',
-        source: 'cv-hill',
-        layout: { visibility: 'none' },
-        // Strong when zoomed out (hills and valleys), faint at street level where the coarse elevation data would smudge.
-        paint: {
-          'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 13, 0.4, 16, 0.12],
-          ...(night
-            ? { 'hillshade-shadow-color': 'rgba(0,4,10,0.65)', 'hillshade-highlight-color': 'rgba(150,175,210,0.2)', 'hillshade-accent-color': 'rgba(0,4,10,0.3)' }
-            : { 'hillshade-shadow-color': 'rgba(40,54,72,0.55)', 'hillshade-highlight-color': 'rgba(255,255,255,0.35)', 'hillshade-accent-color': 'rgba(40,54,72,0.22)' }),
-        },
-      },
-      under || firstSymbol,
-    )
-  }
-  // Default map: woods and grass a little greener, so hills, parks and towns read apart.
+  // Default map: woods and grass a little greener, so parks, woods and towns read apart.
   if (!night && !satellite) {
     if (map.getLayer('landcover_wood')) map.setPaintProperty('landcover_wood', 'fill-opacity', 0.6)
     if (map.getLayer('landcover_grass')) map.setPaintProperty('landcover_grass', 'fill-opacity', 0.45)
   }
   if (night) for (const [id, prop, value] of NIGHT_ROADS) if (map.getLayer(id)) map.setPaintProperty(id, prop, value)
-  try {
-    map.setSky({ 'sky-color': night ? '#0B1322' : '#86B3F0', 'horizon-color': night ? '#20304A' : '#D6E6FB', 'fog-color': night ? '#121A28' : '#EEF3FA', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.85 })
-  } catch {
-    /* engines without a sky */
-  }
   if (!map.getSource('openmaptiles')) return
-  // Night has no 3D buildings of its own.
-  if (!layers.some((l) => l.type === 'fill-extrusion') && !map.getLayer('cv-buildings-3d')) {
-    map.addLayer(
-      {
-        id: 'cv-buildings-3d',
-        type: 'fill-extrusion',
-        source: 'openmaptiles',
-        'source-layer': 'building',
-        minzoom: 14,
-        layout: { visibility: 'none' },
-        paint: {
-          'fill-extrusion-color': night ? '#2C3A4F' : '#D9DEE5',
-          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
-          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-          'fill-extrusion-opacity': 0.88,
-        },
-      },
-      firstSymbol,
-    )
-  }
   for (const [cls, img] of Object.entries(badgeImages())) {
     if (!map.hasImage(`cv-badge-${cls}`)) map.addImage(`cv-badge-${cls}`, img, { pixelRatio: BADGE_RATIO })
   }
@@ -229,26 +167,50 @@ function friendHTML(m, selected) {
       <div class="fm-name">${esc(m.name)}</div>
     </div>`
 }
-const pinHTML = (color, label, kind = 'dest') =>
+const pinHTML = (color, label, kind = 'dest', icon = null) =>
   `<div class="place place-${kind}"><svg width="30" height="38" viewBox="0 0 28 36"><path d="M14 0C6.3 0 0 6.1 0 13.7 0 24 14 36 14 36s14-12 14-22.3C28 6.1 21.7 0 14 0z" fill="${color}"/>${
-    kind === 'regroup' ? '<path d="M10 8v12M10 8h8l-2 3 2 3h-8" stroke="#fff" stroke-width="2" fill="none" stroke-linejoin="round"/>' : '<circle cx="14" cy="13.5" r="5" fill="#fff"/>'
+    icon || (kind === 'regroup' ? '<path d="M10 8v12M10 8h8l-2 3 2 3h-8" stroke="#fff" stroke-width="2" fill="none" stroke-linejoin="round"/>' : '<circle cx="14" cy="13.5" r="5" fill="#fff"/>')
   }</svg>${label ? `<span>${esc(label)}</span>` : ''}</div>`
+// A stop the group picked from a place on the map (petrol, food…): its badge colour and icon.
+function stopPin(regroup) {
+  const [Icon, color] = PLACE_KINDS[regroup?.kind] || []
+  if (!Icon) return pinHTML('#0284C7', regroup?.name || 'Regroup', 'regroup')
+  return pinHTML(color, regroup.name, 'regroup', renderToStaticMarkup(<Icon x={7} y={6.5} width={14} height={14} color="#fff" strokeWidth={2.6} />))
+}
 
 // A calm map: one-way arrows always hidden ("road_one_way…" in Default, "road_oneway…" in Night);
-// places ("poi_…" and our badges) and the 3D map (buildings, relief, terrain) as switched in Settings → Appearance.
-function applyLayers(map, { places, buildings }) {
+// the style's own 3D buildings always hidden (a flat, clean map); places ("poi_…" and our badges) as switched in Settings.
+// A Nearby category (e.g. petrol) shows only those badges, from further out, whatever the setting.
+function applyLayers(map, { places, category }) {
   for (const l of map.getStyle()?.layers || []) {
     let show = null
     if (/one_?way/.test(l.id)) show = false
-    else if (/^poi|^cv-places/.test(l.id)) show = !!places
-    else if (/building-3d|^cv-hillshade/.test(l.id)) show = !!buildings
+    else if (/^poi/.test(l.id)) show = !!places && !category
+    else if (/^cv-places/.test(l.id)) show = !!places || !!category
+    else if (/building-3d/.test(l.id)) show = false
     if (show != null) map.setLayoutProperty(l.id, 'visibility', show ? 'visible' : 'none')
   }
-  try {
-    if (map.getSource('cv-dem')) map.setTerrain(buildings ? { source: 'cv-dem', exaggeration: 1.35 } : null)
-  } catch {
-    /* engines without terrain */
+  if (!map.getLayer('cv-places-key')) return
+  map.setFilter('cv-places-key', ['match', ['get', 'class'], category || KEY_PLACES, true, false])
+  map.setLayerZoomRange('cv-places-key', category ? 11 : 13, 24)
+  map.setLayoutProperty('cv-places-more', 'visibility', category ? 'none' : places ? 'visible' : 'none')
+}
+
+// Places of a Nearby category in the loaded map tiles, nearest first.
+function nearbyPlaces(map, category, from) {
+  const seen = new Set()
+  const out = []
+  for (const f of map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi', filter: ['match', ['get', 'class'], category, true, false] })) {
+    if (f.geometry.type !== 'Point') continue
+    const [lng, lat] = f.geometry.coordinates
+    const cls = f.properties.class
+    const name = f.properties.name_en || f.properties.name || PLACE_KINDS[cls]?.[2] || 'Place'
+    const key = f.id ?? `${name}${lat.toFixed(4)}${lng.toFixed(4)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: `poi${key}`, name, kind: PLACE_KINDS[cls]?.[2] || '', cls, latlng: [lat, lng], dist: from ? haversine(from, [lat, lng]) : 0 })
   }
+  return out.sort((a, b) => a.dist - b.dist).slice(0, 12)
 }
 
 function makeEl(html, className = '') {
@@ -307,7 +269,7 @@ function boundsOf(points) {
 export default function MapView({
   me, friends = [], route, dest, start, regroup, selectedId, onSelect, focus, mode = 'free',
   onUserMove, onCenterChange, padding = { top: 100, bottom: 260 }, styleKey = 'light', interactive = true,
-  places = false, buildings = false,
+  places = false, category = null, onPlaces, onPlaceClick,
 }) {
   const box = useRef(null)
   const mapRef = useRef(null)
@@ -317,7 +279,7 @@ export default function MapView({
   const meMarker = useRef(null)
   const placeMarkers = useRef({})
   const latest = useRef({})
-  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode, places, buildings, night: styleKey === 'dark' }
+  latest.current = { me, route, padding, onUserMove, onCenterChange, onSelect, mode, places, category, onPlaces, onPlaceClick, night: styleKey === 'dark' }
 
   // ---- create the map once ----
   useEffect(() => {
@@ -329,7 +291,6 @@ export default function MapView({
       attributionControl: false,
       interactive,
       fadeDuration: 0,
-      maxPitch: 75,
       dragRotate: true,
       pitchWithRotate: true,
       refreshExpiredTiles: false,
@@ -362,6 +323,19 @@ export default function MapView({
         cb([c.lat, c.lng])
       }
     })
+    // Tapping a place badge opens it (route preview on the home map).
+    for (const id of PLACE_LAYERS) {
+      map.on('click', id, (e) => {
+        const f = e.features?.[0]
+        const cb = latest.current.onPlaceClick
+        if (!f || !cb) return
+        const [lng, lat] = f.geometry.coordinates
+        const cls = f.properties.class
+        cb({ id: `poi${f.id ?? `${lat}${lng}`}`, name: f.properties.name_en || f.properties.name || PLACE_KINDS[cls]?.[2] || 'Place', area: PLACE_KINDS[cls]?.[2] || '', cls, latlng: [lat, lng] })
+      })
+      map.on('mouseenter', id, () => latest.current.onPlaceClick && (map.getCanvas().style.cursor = 'pointer'))
+      map.on('mouseleave', id, () => (map.getCanvas().style.cursor = ''))
+    }
     map.on('style.load', () => {
       addMapExtras(map, latest.current.night)
       applyLayers(map, latest.current)
@@ -408,18 +382,28 @@ export default function MapView({
     map.setStyle(MAP_STYLES[styleKey] || MAP_STYLES.light, { diff: false })
   }, [styleKey])
 
-  // ---- places / 3D buildings switched in Settings ----
+  // ---- places switched in Settings, or a Nearby category ----
+  const categoryKey = category?.join(',') || ''
   useEffect(() => {
     const map = mapRef.current
-    if (map && ready.current) applyLayers(map, { places, buildings })
-  }, [places, buildings])
-  const tilted = useRef(buildings)
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || tilted.current === buildings) return
-    tilted.current = buildings
-    if (latest.current.mode === 'free') map.easeTo({ pitch: buildings ? 55 : 0, duration: 900 })
-  }, [buildings])
+    if (!map) return
+    if (ready.current) applyLayers(map, { places, category })
+    if (!category) return
+    // List what's on the map around you once tiles settle, and again after every pan or zoom.
+    let last = ''
+    const report = () => {
+      const list = nearbyPlaces(map, category, latest.current.me?.latlng)
+      const ids = list.map((p) => p.id).join()
+      if (ids !== last) {
+        last = ids
+        latest.current.onPlaces?.(list)
+      }
+    }
+    map.on('idle', report)
+    if (ready.current) report()
+    return () => map.off('idle', report)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [places, categoryKey])
 
   // ---- route + accuracy (GeoJSON layers) ----
   const alongKey = me?.along == null ? -1 : Math.round(me.along / 60)
@@ -511,7 +495,7 @@ export default function MapView({
   }, [friends, selectedId])
 
   // ---- destination / start / regroup pins ----
-  const placeKey = JSON.stringify([dest?.latlng, dest?.name, start?.latlng, regroup?.latlng, regroup?.name])
+  const placeKey = JSON.stringify([dest?.latlng, dest?.name, start?.latlng, regroup?.latlng, regroup?.name, regroup?.kind])
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -521,7 +505,7 @@ export default function MapView({
     }
     set('dest', dest, pinHTML('#E5383B', dest?.name), 'bottom')
     set('start', start, '<div class="start-dot"></div>', 'center')
-    set('regroup', regroup, pinHTML('#0284C7', regroup?.name || 'Regroup', 'regroup'), 'bottom')
+    set('regroup', regroup, stopPin(regroup), 'bottom')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placeKey])
 
@@ -544,10 +528,10 @@ export default function MapView({
     if (!map || !focus) return
     if (focus.padding) map.setPadding({ top: focus.padding.top, bottom: focus.padding.bottom, left: 0, right: 0 })
     if (focus.type === 'fit' && focus.points?.length > 1) {
-      map.fitBounds(boundsOf(focus.points), { padding: MARGIN, maxZoom: 16, duration: 900, bearing: 0, pitch: buildings ? 45 : 0 })
+      map.fitBounds(boundsOf(focus.points), { padding: MARGIN, maxZoom: 16, duration: 900, bearing: 0, pitch: 0 })
     } else {
       const p = focus.type === 'fit' ? focus.points?.[0] : focus.latlng
-      if (p) map.easeTo({ center: ll(p), zoom: focus.zoom ?? Math.max(map.getZoom(), 15.5), bearing: 0, pitch: buildings ? 50 : 0, duration: 900 })
+      if (p) map.easeTo({ center: ll(p), zoom: focus.zoom ?? Math.max(map.getZoom(), 15.5), bearing: 0, pitch: 0, duration: 900 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus])
@@ -565,7 +549,7 @@ export default function MapView({
         center: ll(me.latlng),
         zoom: nav ? Math.max(map.getZoom(), 16.5) : map.getZoom() < 13 ? 15.5 : map.getZoom(),
         bearing: nav ? me.heading || 0 : 0,
-        pitch: nav ? 60 : buildings ? 50 : 0,
+        pitch: nav ? 60 : 0,
         offset: nav ? [0, 110] : [0, 0], // in navigation view you sit low on screen, road ahead visible
         duration: first ? 0 : 1000,
       })
@@ -576,19 +560,19 @@ export default function MapView({
       if (!pts.length) return
       fitted.current = true
       if (pts.length === 1) {
-        map.easeTo({ center: ll(pts[0]), zoom: first ? 15.5 : map.getZoom(), bearing: 0, pitch: buildings ? 50 : 0, duration: first ? 0 : 1000 })
+        map.easeTo({ center: ll(pts[0]), zoom: first ? 15.5 : map.getZoom(), bearing: 0, pitch: 0, duration: first ? 0 : 1000 })
         return
       }
       const b = boundsOf(pts)
-      const cam = map.cameraForBounds(b, { padding: MARGIN, maxZoom: 16, pitch: buildings ? 50 : 0 })
+      const cam = map.cameraForBounds(b, { padding: MARGIN, maxZoom: 16, pitch: 0 })
       if (!cam) return
       const z = map.getZoom()
       // Zoom out as soon as someone would leave the screen; zoom in only with a full level to spare (no jitter).
       const zoom = first || cam.zoom < z || cam.zoom > z + 1 ? cam.zoom : z
-      map.easeTo({ center: cam.center, zoom, bearing: 0, pitch: buildings ? 50 : 0, duration: first ? 0 : 1000 })
+      map.easeTo({ center: cam.center, zoom, bearing: 0, pitch: 0, duration: first ? 0 : 1000 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, pointsKey, me?.heading, padTop, padBottom, buildings])
+  }, [mode, pointsKey, me?.heading, padTop, padBottom])
 
   return <div ref={box} className="cv-map h-full w-full" style={{ '--map-bottom': `${padding.bottom}px` }} />
 }
